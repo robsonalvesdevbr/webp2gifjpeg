@@ -1,3 +1,3 @@
-module github.com/robson/webp2gifjpeg
+module github.com/robsonalvesdevbr/webp2gifjpeg
 
 go 1.25

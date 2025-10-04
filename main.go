@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/robson/webp2gifjpeg/converter"
+	"github.com/robsonalvesdevbr/webp2gifjpeg/converter"
 )
 
 func main() {
