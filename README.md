@@ -1,10 +1,15 @@
-# WebP to GIF Converter
+# WebP to GIF/JPEG Converter
 
-Aplicação em Go para converter arquivos WebP animados para GIF, processando recursivamente todos os arquivos em um diretório.
+Aplicação em Go para converter arquivos WebP automaticamente para o formato apropriado: WebP animados → GIF e WebP estáticos → JPEG, processando recursivamente todos os arquivos em um diretório.
 
 ## Funcionalidades
 
+- ✅ Detecção automática de WebP animado vs estático
 - ✅ Conversão de WebP animado para GIF
+- ✅ Conversão de WebP estático para JPEG
+- ✅ Qualidade JPEG configurável (1-100)
+- ✅ Preservação de metadados EXIF (JPEG)
+- ✅ Tratamento de transparência (fundo branco em JPEG)
 - ✅ Processamento recursivo de diretórios
 - ✅ Substituição automática dos arquivos WebP originais
 - ✅ Logging de progresso e erros
@@ -89,7 +94,7 @@ cd webp2gifjpeg
 go build -o webp2gifjpeg
 ```
 
-**Importante:** Certifique-se de que o arquivo `webp_to_gif.py` está no mesmo diretório do binário `webp2gifjpeg`.
+**Importante:** Certifique-se de que os arquivos Python (`detect_webp_type.py`, `webp_to_gif.py`, `webp_to_jpeg.py`) estão no mesmo diretório do binário `webp2gifjpeg`.
 
 ## Uso
 
@@ -105,14 +110,26 @@ go build -o webp2gifjpeg
 ./webp2gifjpeg -dir /caminho/para/diretorio
 ```
 
+### Configurando qualidade JPEG
+
+```bash
+./webp2gifjpeg -quality 95
+```
+
 ### Exemplos
 
 ```bash
-# Converter todos os WebP no diretório atual
+# Converter todos os WebP no diretório atual (qualidade JPEG padrão: 85)
 ./webp2gifjpeg
 
 # Converter todos os WebP em um diretório específico
 ./webp2gifjpeg -dir ./imagens
+
+# Alta qualidade JPEG para fotos profissionais
+./webp2gifjpeg -dir ./fotos -quality 95
+
+# Qualidade menor para web (arquivos menores)
+./webp2gifjpeg -dir ./web-images -quality 75
 
 # Converter todos os WebP incluindo subdiretórios
 ./webp2gifjpeg -dir /home/usuario/fotos
@@ -122,29 +139,37 @@ go build -o webp2gifjpeg
 
 ```
 webp2gifjpeg/
-├── main.go                    # Aplicação principal
-├── webp2gifjpeg                   # Binário compilado
-├── webp_to_gif.py            # Script Python para conversão
+├── main.go                    # Aplicação principal (CLI)
+├── webp2gifjpeg               # Binário compilado
+├── detect_webp_type.py        # Script Python para detecção de tipo
+├── webp_to_gif.py             # Script Python para conversão GIF
+├── webp_to_jpeg.py            # Script Python para conversão JPEG
 ├── converter/
-│   ├── converter.go          # Lógica de conversão
-│   └── converter_test.go     # Testes unitários
-├── go.mod                    # Dependências (vazio - sem deps externas)
-└── README.md                 # Documentação
+│   ├── converter.go           # Lógica de conversão e detecção
+│   └── converter_test.go      # Testes unitários
+├── go.mod                     # Dependências (vazio - sem deps externas)
+└── README.md                  # Documentação
 ```
 
 ## Como Funciona
 
 1. A aplicação Go percorre recursivamente o diretório especificado
 2. Identifica todos os arquivos com extensão `.webp`
-3. Para cada arquivo, chama o script Python `webp_to_gif.py`
-4. O script Python usa Pillow para converter WebP → GIF (com suporte completo a animações)
-5. Substitui o arquivo original `.webp` pelo novo `.gif`
-6. Exibe um resumo com quantidade de arquivos convertidos e erros
+3. Para cada arquivo WebP:
+   - Detecta se é animado ou estático usando `detect_webp_type.py`
+   - **Se animado**: converte para GIF usando `webp_to_gif.py`
+   - **Se estático**: converte para JPEG usando `webp_to_jpeg.py`
+4. Os scripts Python usam Pillow para conversão com alta qualidade
+5. Substitui o arquivo original `.webp` pelo novo `.gif` ou `.jpg`
+6. Exibe um resumo detalhado com estatísticas de conversão
 
 ### Arquitetura Híbrida
 
-- **Go**: Gerenciamento de arquivos, busca recursiva, orquestração
-- **Python/Pillow**: Conversão real (suporte completo para WebP animado com múltiplos frames)
+- **Go**: Gerenciamento de arquivos, busca recursiva, orquestração, CLI
+- **Python/Pillow**: Detecção e conversão de imagens
+  - Suporte completo para WebP animado (múltiplos frames, delays)
+  - Conversão de WebP estático com preservação de EXIF
+  - Tratamento de transparência (composite em fundo branco para JPEG)
 
 ## Testes
 
@@ -166,10 +191,12 @@ go test -v ./...
 ## Testes Incluídos
 
 - ✅ Conversão básica de WebP para GIF
-- ✅ Processamento de diretórios recursivo
-- ✅ Detecção de WebP animado
+- ✅ Conversão de WebP para JPEG
+- ✅ Processamento de diretórios recursivo com detecção automática
+- ✅ Detecção de tipo de WebP (animado vs estático)
 - ✅ Tratamento de erros (arquivo inexistente, diretório inválido)
 - ✅ Verificação de substituição de arquivos
+- ✅ Validação de qualidade JPEG
 
 ## Dependências
 
@@ -184,9 +211,12 @@ go test -v ./...
 ## Observações
 
 - **Backup**: A aplicação substitui os arquivos originais. Faça backup antes de executar.
-- **WebP Animado**: Suporte completo via Pillow - todos os frames e delays são preservados.
+- **WebP Animado**: Suporte completo via Pillow - todos os frames e delays são preservados no GIF.
+- **WebP Estático**: Convertido para JPEG com qualidade configurável (padrão: 85).
+- **Transparência**: WebP com canal alpha são convertidos para JPEG com fundo branco.
+- **EXIF**: Metadados EXIF são preservados na conversão para JPEG.
 - **Performance**: O processamento é feito sequencialmente. Para grandes volumes, considere adicionar processamento paralelo.
-- **Distribuição**: Para distribuir o binário, inclua tanto `webp2gifjpeg` quanto `webp_to_gif.py` no mesmo diretório.
+- **Distribuição**: Para distribuir o binário, inclua todos os arquivos Python (`detect_webp_type.py`, `webp_to_gif.py`, `webp_to_jpeg.py`) no mesmo diretório do executável.
 
 ## Melhorias Futuras
 

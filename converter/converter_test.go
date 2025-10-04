@@ -85,7 +85,8 @@ func TestProcessDirectory(t *testing.T) {
 	}
 
 	// Process directory
-	if err := ProcessDirectory(tmpDir); err != nil {
+	options := DefaultProcessOptions()
+	if err := ProcessDirectory(tmpDir, options); err != nil {
 		t.Fatalf("ProcessDirectory failed: %v", err)
 	}
 
@@ -96,10 +97,24 @@ func TestProcessDirectory(t *testing.T) {
 			t.Errorf("WebP file %s was not removed", webpPath)
 		}
 
-		// GIF should exist
-		gifPath := webpPath[:len(webpPath)-5] + ".gif"
+		// Check if GIF or JPEG was created (depends on if WebP is animated or static)
+		basePath := webpPath[:len(webpPath)-5]
+		gifPath := basePath + ".gif"
+		jpegPath := basePath + ".jpg"
+
+		gifExists := true
+		jpegExists := true
+
 		if _, err := os.Stat(gifPath); os.IsNotExist(err) {
-			t.Errorf("GIF file %s was not created", gifPath)
+			gifExists = false
+		}
+		if _, err := os.Stat(jpegPath); os.IsNotExist(err) {
+			jpegExists = false
+		}
+
+		// At least one output format should exist
+		if !gifExists && !jpegExists {
+			t.Errorf("Neither GIF nor JPEG was created for %s", webpPath)
 		}
 	}
 }
@@ -141,7 +156,8 @@ func TestConvertWebPToGIF_NonExistentFile(t *testing.T) {
 
 // TestProcessDirectory_NonExistentDir tests error handling for invalid directory
 func TestProcessDirectory_NonExistentDir(t *testing.T) {
-	err := ProcessDirectory("/nonexistent/directory")
+	options := DefaultProcessOptions()
+	err := ProcessDirectory("/nonexistent/directory", options)
 	if err == nil {
 		t.Error("Expected error for non-existent directory, got nil")
 	}
