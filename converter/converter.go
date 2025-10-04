@@ -1,6 +1,7 @@
 package converter
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -108,7 +109,8 @@ func DetectWebPType(filePath string) (WebPType, error) {
 
 	// Exit codes: 0=static, 1=animated, 2=error
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if ok := errors.As(err, &exitErr); ok {
 			switch exitErr.ExitCode() {
 			case 0:
 				return WebPTypeStatic, nil

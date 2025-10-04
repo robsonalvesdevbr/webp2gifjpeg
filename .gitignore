@@ -1,0 +1,69 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+
+# IDE - VSCode
+.vscode/
+*.code-workspace
+
+# IDE - JetBrains
+.idea/
+*.iml
+*.iws
+
+# IDE - Vim
+*.swp
+*.swo
+*~
+
+# IDE - Emacs
+*~
+\#*\#
+.\#*
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+webp2gifjpeg
+webp2gifjpeg.exe
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# Test fixtures and output
+testdata/*.gif
+testdata/*.jpg
+testdata/*.jpeg
+*.webp.tmp
+*.gif.tmp
+*.jpg.tmp
+
+# Python cache (from Python scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
