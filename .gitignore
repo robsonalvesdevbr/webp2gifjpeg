@@ -67,3 +67,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.pyo
+
+# Don't ignore scripts directory (embedded scripts)
+!scripts/
+scripts/__pycache__/

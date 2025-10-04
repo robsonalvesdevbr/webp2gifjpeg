@@ -15,6 +15,13 @@ func TestConvertWebPToGIF(t *testing.T) {
 		t.Skip("ffmpeg not found, skipping test")
 	}
 
+	// Initialize script manager
+	scriptMgr, err := NewScriptManager()
+	if err != nil {
+		t.Fatalf("Failed to create script manager: %v", err)
+	}
+	defer scriptMgr.Cleanup()
+
 	// Create a temporary directory for test files
 	tmpDir := t.TempDir()
 
@@ -28,7 +35,7 @@ func TestConvertWebPToGIF(t *testing.T) {
 	}
 
 	// Convert to GIF
-	if err := ConvertWebPToGIF(webpPath); err != nil {
+	if err := ConvertWebPToGIF(scriptMgr, webpPath); err != nil {
 		t.Fatalf("ConvertWebPToGIF failed: %v", err)
 	}
 
@@ -63,6 +70,13 @@ func TestProcessDirectory(t *testing.T) {
 		t.Skip("ffmpeg not found, skipping test")
 	}
 
+	// Initialize script manager
+	scriptMgr, err := NewScriptManager()
+	if err != nil {
+		t.Fatalf("Failed to create script manager: %v", err)
+	}
+	defer scriptMgr.Cleanup()
+
 	// Create a temporary directory structure
 	tmpDir := t.TempDir()
 	subDir := filepath.Join(tmpDir, "subdir")
@@ -86,7 +100,7 @@ func TestProcessDirectory(t *testing.T) {
 
 	// Process directory
 	options := DefaultProcessOptions()
-	if err := ProcessDirectory(tmpDir, options); err != nil {
+	if err := ProcessDirectory(scriptMgr, tmpDir, options); err != nil {
 		t.Fatalf("ProcessDirectory failed: %v", err)
 	}
 
@@ -148,7 +162,13 @@ func TestIsAnimatedWebP(t *testing.T) {
 
 // TestConvertWebPToGIF_NonExistentFile tests error handling
 func TestConvertWebPToGIF_NonExistentFile(t *testing.T) {
-	err := ConvertWebPToGIF("/nonexistent/file.webp")
+	scriptMgr, err := NewScriptManager()
+	if err != nil {
+		t.Fatalf("Failed to create script manager: %v", err)
+	}
+	defer scriptMgr.Cleanup()
+
+	err = ConvertWebPToGIF(scriptMgr, "/nonexistent/file.webp")
 	if err == nil {
 		t.Error("Expected error for non-existent file, got nil")
 	}
@@ -156,8 +176,14 @@ func TestConvertWebPToGIF_NonExistentFile(t *testing.T) {
 
 // TestProcessDirectory_NonExistentDir tests error handling for invalid directory
 func TestProcessDirectory_NonExistentDir(t *testing.T) {
+	scriptMgr, err := NewScriptManager()
+	if err != nil {
+		t.Fatalf("Failed to create script manager: %v", err)
+	}
+	defer scriptMgr.Cleanup()
+
 	options := DefaultProcessOptions()
-	err := ProcessDirectory("/nonexistent/directory", options)
+	err = ProcessDirectory(scriptMgr, "/nonexistent/directory", options)
 	if err == nil {
 		t.Error("Expected error for non-existent directory, got nil")
 	}

@@ -21,6 +21,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Initialize script manager
+	scriptMgr, err := converter.NewScriptManager()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize: %v\n", err)
+		os.Exit(1)
+	}
+	defer scriptMgr.Cleanup()
+
+	// Validate Python environment
+	if err := scriptMgr.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+
 	// Get absolute path
 	absPath, err := filepath.Abs(*dirPtr)
 	if err != nil {
@@ -48,7 +62,7 @@ func main() {
 		JPEGQuality: *qualityPtr,
 	}
 
-	if err := converter.ProcessDirectory(absPath, options); err != nil {
+	if err := converter.ProcessDirectory(scriptMgr, absPath, options); err != nil {
 		fmt.Fprintf(os.Stderr, "Error processing directory: %v\n", err)
 		os.Exit(1)
 	}

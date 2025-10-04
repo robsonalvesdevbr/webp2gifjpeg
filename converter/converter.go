@@ -9,42 +9,9 @@ import (
 	"strings"
 )
 
-// getPythonScriptPath returns the full path to a Python script
-func getPythonScriptPath(scriptName string) (string, error) {
-	// List of locations to search for the script
-	searchPaths := []string{}
-
-	// 1. Directory where the binary is located
-	execPath, err := os.Executable()
-	if err == nil {
-		execDir := filepath.Dir(execPath)
-		searchPaths = append(searchPaths, filepath.Join(execDir, scriptName))
-	}
-
-	// 2. Current working directory
-	searchPaths = append(searchPaths, scriptName)
-
-	// 3. Parent directory (for tests running in subdirectories)
-	searchPaths = append(searchPaths, filepath.Join("..", scriptName))
-
-	// Try each path
-	for _, path := range searchPaths {
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
-		}
-	}
-
-	return "", fmt.Errorf("script %s not found in any search path", scriptName)
-}
-
 // executePythonConversion executes a Python conversion script and handles temp files
-func executePythonConversion(scriptName, inputPath, outputPath string, extraArgs ...string) error {
+func executePythonConversion(scriptPath, inputPath, outputPath string, extraArgs ...string) error {
 	tempPath := outputPath + ".tmp"
-
-	scriptPath, err := getPythonScriptPath(scriptName)
-	if err != nil {
-		return err
-	}
 
 	// Build command arguments
 	args := []string{scriptPath, inputPath, tempPath}
@@ -98,11 +65,8 @@ func (t WebPType) String() string {
 }
 
 // DetectWebPType detects if a WebP file is animated or static using Python/Pillow
-func DetectWebPType(filePath string) (WebPType, error) {
-	scriptPath, err := getPythonScriptPath("detect_webp_type.py")
-	if err != nil {
-		return WebPTypeUnknown, fmt.Errorf("failed to locate detection script: %w", err)
-	}
+func DetectWebPType(scriptMgr *ScriptManager, filePath string) (WebPType, error) {
+	scriptPath := scriptMgr.GetScriptPath("detect_webp_type.py")
 
 	cmd := exec.Command("python3", scriptPath, filePath)
 	output, err := cmd.CombinedOutput()
@@ -128,21 +92,23 @@ func DetectWebPType(filePath string) (WebPType, error) {
 }
 
 // ConvertWebPToGIF converts an animated WebP file to GIF format using Python/PIL
-func ConvertWebPToGIF(inputPath string) error {
+func ConvertWebPToGIF(scriptMgr *ScriptManager, inputPath string) error {
+	scriptPath := scriptMgr.GetScriptPath("webp_to_gif.py")
 	outputPath := strings.TrimSuffix(inputPath, filepath.Ext(inputPath)) + ".gif"
-	return executePythonConversion("webp_to_gif.py", inputPath, outputPath)
+	return executePythonConversion(scriptPath, inputPath, outputPath)
 }
 
 // ConvertWebPToJPEG converts a static WebP file to JPEG format using Python/PIL
 // quality: JPEG quality (1-100), recommended 85
-func ConvertWebPToJPEG(inputPath string, quality int) error {
+func ConvertWebPToJPEG(scriptMgr *ScriptManager, inputPath string, quality int) error {
 	// Validate quality
 	if quality < 1 || quality > 100 {
 		return fmt.Errorf("quality must be between 1 and 100, got %d", quality)
 	}
 
+	scriptPath := scriptMgr.GetScriptPath("webp_to_jpeg.py")
 	outputPath := strings.TrimSuffix(inputPath, filepath.Ext(inputPath)) + ".jpg"
-	return executePythonConversion("webp_to_jpeg.py", inputPath, outputPath, fmt.Sprintf("%d", quality))
+	return executePythonConversion(scriptPath, inputPath, outputPath, fmt.Sprintf("%d", quality))
 }
 
 // ProcessOptions configures the conversion behavior
@@ -158,7 +124,7 @@ func DefaultProcessOptions() ProcessOptions {
 }
 
 // ProcessDirectory recursively processes all WebP files in a directory
-func ProcessDirectory(rootPath string, options ProcessOptions) error {
+func ProcessDirectory(scriptMgr *ScriptManager, rootPath string, options ProcessOptions) error {
 	var processedCount int
 	var errorCount int
 	var staticCount int
@@ -182,7 +148,7 @@ func ProcessDirectory(rootPath string, options ProcessOptions) error {
 		fmt.Printf("Processing: %s\n", path)
 
 		// Detect WebP type
-		webpType, err := DetectWebPType(path)
+		webpType, err := DetectWebPType(scriptMgr, path)
 		if err != nil {
 			fmt.Printf("  Error detecting type: %v\n", err)
 			errorCount++
@@ -195,14 +161,14 @@ func ProcessDirectory(rootPath string, options ProcessOptions) error {
 		switch webpType {
 		case WebPTypeAnimated:
 			fmt.Printf("  Type: Animated → Converting to GIF\n")
-			convertErr = ConvertWebPToGIF(path)
+			convertErr = ConvertWebPToGIF(scriptMgr, path)
 			if convertErr == nil {
 				animatedCount++
 			}
 
 		case WebPTypeStatic:
 			fmt.Printf("  Type: Static → Converting to JPEG (quality %d)\n", options.JPEGQuality)
-			convertErr = ConvertWebPToJPEG(path, options.JPEGQuality)
+			convertErr = ConvertWebPToJPEG(scriptMgr, path, options.JPEGQuality)
 			if convertErr == nil {
 				staticCount++
 			}

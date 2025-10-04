@@ -85,16 +85,26 @@ pip3 install Pillow
 
 ## Instalação da Aplicação
 
+### Via go install (Recomendado)
+
+```bash
+go install github.com/robsonalvesdevbr/webp2gifjpeg@latest
+```
+
+A ferramenta estará disponível em `~/go/bin/webp2gifjpeg` (ou `$GOPATH/bin/webp2gifjpeg`).
+
+### Via Clone do Repositório
+
 ```bash
 # Clone o repositório
-git clone https://github.com/robson/webp2gifjpeg.git
+git clone https://github.com/robsonalvesdevbr/webp2gifjpeg.git
 cd webp2gifjpeg
 
 # Compile a aplicação
 go build -o webp2gifjpeg
 ```
 
-**Importante:** Certifique-se de que os arquivos Python (`detect_webp_type.py`, `webp_to_gif.py`, `webp_to_jpeg.py`) estão no mesmo diretório do binário `webp2gifjpeg`.
+**Nota:** Os scripts Python são automaticamente embutidos no binário durante a compilação. Não é necessário copiar arquivos adicionais!
 
 ## Uso
 
@@ -141,35 +151,49 @@ go build -o webp2gifjpeg
 webp2gifjpeg/
 ├── main.go                    # Aplicação principal (CLI)
 ├── webp2gifjpeg               # Binário compilado
-├── detect_webp_type.py        # Script Python para detecção de tipo
-├── webp_to_gif.py             # Script Python para conversão GIF
-├── webp_to_jpeg.py            # Script Python para conversão JPEG
 ├── converter/
-│   ├── converter.go           # Lógica de conversão e detecção
-│   └── converter_test.go      # Testes unitários
-├── go.mod                     # Dependências (vazio - sem deps externas)
+│   ├── converter.go           # Lógica de conversão
+│   ├── scripts.go             # Gerenciamento de scripts embutidos
+│   ├── converter_test.go      # Testes unitários
+│   └── scripts/               # Scripts Python (embutidos no binário)
+│       ├── detect_webp_type.py    # Detecção de tipo de WebP
+│       ├── webp_to_gif.py         # Conversão para GIF
+│       └── webp_to_jpeg.py        # Conversão para JPEG
+├── go.mod                     # Dependências
+├── .gitignore                 # Arquivos ignorados pelo Git
 └── README.md                  # Documentação
 ```
 
 ## Como Funciona
 
-1. A aplicação Go percorre recursivamente o diretório especificado
-2. Identifica todos os arquivos com extensão `.webp`
-3. Para cada arquivo WebP:
+1. **Inicialização**: Scripts Python são extraídos dos recursos embutidos para um diretório temporário
+2. **Validação**: Verifica se Python 3 e Pillow estão instalados
+3. **Processamento**: A aplicação Go percorre recursivamente o diretório especificado
+4. Para cada arquivo `.webp`:
    - Detecta se é animado ou estático usando `detect_webp_type.py`
    - **Se animado**: converte para GIF usando `webp_to_gif.py`
    - **Se estático**: converte para JPEG usando `webp_to_jpeg.py`
-4. Os scripts Python usam Pillow para conversão com alta qualidade
-5. Substitui o arquivo original `.webp` pelo novo `.gif` ou `.jpg`
-6. Exibe um resumo detalhado com estatísticas de conversão
+5. Os scripts Python usam Pillow para conversão com alta qualidade
+6. Substitui o arquivo original `.webp` pelo novo `.gif` ou `.jpg`
+7. Exibe um resumo detalhado com estatísticas de conversão
+8. **Cleanup**: Remove arquivos temporários ao finalizar
 
 ### Arquitetura Híbrida
 
-- **Go**: Gerenciamento de arquivos, busca recursiva, orquestração, CLI
+- **Go**: Gerenciamento de arquivos, busca recursiva, orquestração, CLI, embedding de scripts
 - **Python/Pillow**: Detecção e conversão de imagens
   - Suporte completo para WebP animado (múltiplos frames, delays)
   - Conversão de WebP estático com preservação de EXIF
   - Tratamento de transparência (composite em fundo branco para JPEG)
+
+### Scripts Embutidos (Embedded)
+
+Os scripts Python são embutidos no binário usando `//go:embed` e extraídos em runtime para:
+- **Temp directory** (`/tmp/webp2gif-*/`) - preferência, limpo automaticamente pelo SO
+- **Cache persistente** (`~/.cache/webp2gifjpeg/`) - reutilizado entre execuções
+- **Home directory** (`~/.webp2gifjpeg-tmp/`) - fallback para ambientes restritos
+
+Isso garante que `go install` funcione perfeitamente sem necessidade de arquivos externos!
 
 ## Testes
 
@@ -216,7 +240,8 @@ go test -v ./...
 - **Transparência**: WebP com canal alpha são convertidos para JPEG com fundo branco.
 - **EXIF**: Metadados EXIF são preservados na conversão para JPEG.
 - **Performance**: O processamento é feito sequencialmente. Para grandes volumes, considere adicionar processamento paralelo.
-- **Distribuição**: Para distribuir o binário, inclua todos os arquivos Python (`detect_webp_type.py`, `webp_to_gif.py`, `webp_to_jpeg.py`) no mesmo diretório do executável.
+- **Scripts Embutidos**: Os scripts Python são automaticamente extraídos e gerenciados pelo binário. Nenhum arquivo externo é necessário!
+- **Cache**: Scripts são armazenados em cache (`~/.cache/webp2gifjpeg/`) para melhor performance em execuções subsequentes.
 
 ## Melhorias Futuras
 
