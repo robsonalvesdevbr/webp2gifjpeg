@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 //go:embed scripts
@@ -22,25 +23,40 @@ type ScriptManager struct {
 
 // NewScriptManager creates a new script manager with fallback extraction strategy
 func NewScriptManager() (*ScriptManager, error) {
+	var errors []string
+
 	// Strategy 1: Temp directory (preferred - cleaned by OS)
 	dir, cleanup, err := extractToTemp()
 	if err == nil {
 		return &ScriptManager{scriptDir: dir, cleanup: cleanup}, nil
 	}
+	errors = append(errors, fmt.Sprintf("temp: %v", err))
 
 	// Strategy 2: Persistent cache directory
 	dir, err = extractToCache()
 	if err == nil {
 		return &ScriptManager{scriptDir: dir, cleanup: func() error { return nil }}, nil
 	}
+	errors = append(errors, fmt.Sprintf("cache: %v", err))
 
 	// Strategy 3: Home directory fallback
 	dir, err = extractToHome()
 	if err == nil {
 		return &ScriptManager{scriptDir: dir, cleanup: func() error { return nil }}, nil
 	}
+	errors = append(errors, fmt.Sprintf("home: %v", err))
 
-	return nil, fmt.Errorf("failed to extract scripts to any location")
+	// Strategy 4: Current working directory (Windows-specific fallback)
+	if runtime.GOOS == "windows" {
+		dir, err = extractToCWD()
+		if err == nil {
+			return &ScriptManager{scriptDir: dir, cleanup: func() error { return nil }}, nil
+		}
+		errors = append(errors, fmt.Sprintf("cwd: %v", err))
+	}
+
+	return nil, fmt.Errorf("failed to extract scripts to any location:\n  %s",
+		strings.Join(errors, "\n  "))
 }
 
 // GetScriptPath returns the full path to a named script
@@ -87,17 +103,12 @@ On some systems you may need:
   pip3 install --break-system-packages Pillow`)
 	}
 
-	// Verify all scripts exist and are executable
+	// Verify all scripts exist
 	scripts := []string{"detect_webp_type.py", "webp_to_gif.py", "webp_to_jpeg.py"}
 	for _, script := range scripts {
 		path := sm.GetScriptPath(script)
-		info, err := os.Stat(path)
-		if err != nil {
+		if _, err := os.Stat(path); err != nil {
 			return fmt.Errorf("script %s not found: %w", script, err)
-		}
-		// Check if executable (on Unix-like systems)
-		if runtime.GOOS != "windows" && info.Mode().Perm()&0100 == 0 {
-			return fmt.Errorf("script %s is not executable", script)
 		}
 	}
 
@@ -108,12 +119,12 @@ On some systems you may need:
 func extractToTemp() (string, func() error, error) {
 	tmpDir, err := os.MkdirTemp("", "webp2gif-*")
 	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
 	if err := extractScripts(tmpDir); err != nil {
 		os.RemoveAll(tmpDir)
-		return "", nil, err
+		return "", nil, fmt.Errorf("failed to extract scripts to temp: %w", err)
 	}
 
 	cleanup := func() error {
@@ -160,15 +171,46 @@ func extractToCache() (string, error) {
 func extractToHome() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	dir := filepath.Join(homeDir, ".webp2gifjpeg-tmp")
+	// Use different directory naming for Windows vs Unix
+	var dirName string
+	if runtime.GOOS == "windows" {
+		dirName = "webp2gifjpeg-temp" // No leading dot on Windows
+	} else {
+		dirName = ".webp2gifjpeg-tmp"
+	}
+
+	dir := filepath.Join(homeDir, dirName)
 	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create home directory: %w", err)
+	}
+
+	if err := extractScripts(dir); err != nil {
 		return "", err
 	}
 
-	return dir, extractScripts(dir)
+	return dir, nil
+}
+
+// extractToCWD extracts to current working directory (Windows fallback)
+func extractToCWD() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	dir := filepath.Join(cwd, ".webp2gifjpeg")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	if err := extractScripts(dir); err != nil {
+		return "", err
+	}
+
+	return dir, nil
 }
 
 // getCacheDir returns platform-specific cache directory
@@ -182,14 +224,27 @@ func getCacheDir() (string, error) {
 		} else {
 			home, err := os.UserHomeDir()
 			if err != nil {
-				return "", err
+				return "", fmt.Errorf("failed to get home directory: %w", err)
 			}
 			cacheBase = filepath.Join(home, ".cache")
 		}
 	case "windows":
+		// Try multiple Windows environment variables in order of preference
 		cacheBase = os.Getenv("LOCALAPPDATA")
 		if cacheBase == "" {
-			return "", fmt.Errorf("LOCALAPPDATA not set")
+			cacheBase = os.Getenv("APPDATA")
+		}
+		if cacheBase == "" {
+			// Fallback to USERPROFILE\AppData\Local
+			userProfile := os.Getenv("USERPROFILE")
+			if userProfile == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return "", fmt.Errorf("failed to determine user directory: %w", err)
+				}
+				userProfile = home
+			}
+			cacheBase = filepath.Join(userProfile, "AppData", "Local")
 		}
 	default:
 		return "", fmt.Errorf("unsupported platform: %s", runtime.GOOS)
@@ -211,8 +266,9 @@ func extractScripts(targetDir string) error {
 			return fmt.Errorf("failed to read embedded %s: %w", script, err)
 		}
 
-		if err := os.WriteFile(dstPath, data, 0755); err != nil {
-			return fmt.Errorf("failed to write %s: %w", script, err)
+		// Use 0644 for better Windows compatibility
+		if err := os.WriteFile(dstPath, data, 0644); err != nil {
+			return fmt.Errorf("failed to write %s to %s: %w", script, dstPath, err)
 		}
 	}
 
