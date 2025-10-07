@@ -96,6 +96,23 @@ CGO_ENABLED=1 go install github.com/robsonalvesdevbr/webpconvert@latest
 
 A ferramenta estará disponível em `~/go/bin/webpconvert` (ou `$GOPATH/bin/webpconvert`).
 
+**Instalando versões específicas:**
+
+```bash
+# Versão mais recente (v1.3.0 - implementação nativa CGO)
+CGO_ENABLED=1 go install github.com/robsonalvesdevbr/webpconvert@v1.3.0
+
+# Versão legada (v1.0.0 - implementação Python, não recomendado)
+go install github.com/robsonalvesdevbr/webp2gifjpeg@v1.0.0
+```
+
+> **Nota sobre Versionamento:**
+> - **v1.3.0+**: Implementação nativa com CGO (recomendado) - módulo `webpconvert`
+> - **v1.2.0**: Transição (renomeação do projeto)
+> - **v1.0.0**: Versão legada com dependência Python - módulo `webp2gifjpeg`
+>
+> ⚠️ **Breaking Changes em v1.3.0**: Migração completa de Python para CGO nativo, mudança de nome do módulo e nova API.
+
 ### Via Clone do Repositório
 
 ```bash
