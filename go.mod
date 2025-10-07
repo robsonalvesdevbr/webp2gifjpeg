@@ -1,3 +1,3 @@
-module github.com/robsonalvesdevbr/webp2gifjpeg
+module github.com/robsonalvesdevbr/webpconvert
 
 go 1.25

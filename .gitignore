@@ -46,6 +46,9 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
+webpconvert
+webpconvert.exe
+# Legacy binary names (for backwards compatibility)
 webp2gifjpeg
 webp2gifjpeg.exe
 

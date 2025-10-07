@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/robsonalvesdevbr/webp2gifjpeg/native"
+	"github.com/robsonalvesdevbr/webpconvert/native"
 )
 
 // TestDetectWebPType tests WebP type detection

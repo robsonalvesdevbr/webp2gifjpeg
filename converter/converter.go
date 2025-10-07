@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/robsonalvesdevbr/webp2gifjpeg/native"
+	"github.com/robsonalvesdevbr/webpconvert/native"
 )
 
 // ProcessOptions configures the conversion behavior

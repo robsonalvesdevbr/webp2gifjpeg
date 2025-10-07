@@ -1,6 +1,6 @@
-# WebP to GIF/JPEG Converter
+# WebP Convert
 
-Aplicação **standalone** em Go para converter arquivos WebP automaticamente para o formato apropriado: WebP animados → GIF e WebP estáticos → JPEG, processando recursivamente todos os arquivos em um diretório.
+Conversor de imagens **standalone** em Go com foco em conversões bi-direcionais de/para WebP. Suporta processamento em lote com conversão paralela entre os formatos: WebP, JPEG, PNG, GIF e BMP.
 
 **✨ Versão Native**: Implementação 100% nativa usando CGO + libwebp, sem dependências de Python em runtime!
 
@@ -60,20 +60,20 @@ Aplicação **standalone** em Go para converter arquivos WebP automaticamente pa
 ### Via go install (Recomendado)
 
 ```bash
-CGO_ENABLED=1 go install github.com/robsonalvesdevbr/webp2gifjpeg@latest
+CGO_ENABLED=1 go install github.com/robsonalvesdevbr/webpconvert@latest
 ```
 
-A ferramenta estará disponível em `~/go/bin/webp2gifjpeg` (ou `$GOPATH/bin/webp2gifjpeg`).
+A ferramenta estará disponível em `~/go/bin/webpconvert` (ou `$GOPATH/bin/webpconvert`).
 
 ### Via Clone do Repositório
 
 ```bash
 # Clone o repositório
-git clone https://github.com/robsonalvesdevbr/webp2gifjpeg.git
-cd webp2gifjpeg
+git clone https://github.com/robsonalvesdevbr/webpconvert.git
+cd webpconvert
 
 # Compile a aplicação
-CGO_ENABLED=1 go build -o webp2gifjpeg
+CGO_ENABLED=1 go build -o webpconvert
 ```
 
 **Nota**: CGO_ENABLED=1 é necessário para compilar o código C nativo.
@@ -83,65 +83,65 @@ CGO_ENABLED=1 go build -o webp2gifjpeg
 ### Processando o diretório atual
 
 ```bash
-./webp2gifjpeg
+./webpconvert
 ```
 
 ### Processando um diretório específico
 
 ```bash
-./webp2gifjpeg -dir /caminho/para/diretorio
+./webpconvert -dir /caminho/para/diretorio
 ```
 
 ### Configurando qualidade JPEG
 
 ```bash
-./webp2gifjpeg -quality 95
+./webpconvert -quality 95
 ```
 
 ### Processamento paralelo
 
 ```bash
 # Usar 4 workers paralelos
-./webp2gifjpeg -workers 4
+./webpconvert -workers 4
 
 # Usar todos os núcleos da CPU (padrão)
-./webp2gifjpeg
+./webpconvert
 
 # Processamento sequencial (1 worker)
-./webp2gifjpeg -workers 1
+./webpconvert -workers 1
 ```
 
 ### Exemplos
 
 ```bash
 # Converter todos os WebP no diretório atual (qualidade JPEG padrão: 100, workers: CPU count)
-./webp2gifjpeg
+./webpconvert
 
 # Converter todos os WebP em um diretório específico
-./webp2gifjpeg -dir ./imagens
+./webpconvert -dir ./imagens
 
 # Alta qualidade JPEG para fotos profissionais
-./webp2gifjpeg -dir ./fotos -quality 100
+./webpconvert -dir ./fotos -quality 100
 
 # Qualidade menor para web (arquivos menores)
-./webp2gifjpeg -dir ./web-images -quality 75
+./webpconvert -dir ./web-images -quality 75
 
 # Processamento rápido com 8 workers paralelos
-./webp2gifjpeg -dir ./fotos -workers 8
+./webpconvert -dir ./fotos -workers 8
 
 # Processamento sequencial para economia de recursos
-./webp2gifjpeg -dir ./imagens -workers 1
+./webpconvert -dir ./imagens -workers 1
 
 # Combinar qualidade e workers
-./webp2gifjpeg -dir /home/usuario/fotos -quality 95 -workers 4
+./webpconvert -dir /home/usuario/fotos -quality 95 -workers 4
 ```
 
 ## Estrutura do Projeto
 
 ```
-webp2gifjpeg/
+webpconvert/
 ├── main.go                    # Aplicação principal (CLI)
-├── webp2gifjpeg               # Binário compilado
+├── webpconvert                # Binário compilado
 ├── converter/
 │   ├── converter.go           # Lógica de conversão e processamento
 │   └── converter_test.go      # Testes unitários
@@ -279,7 +279,7 @@ Para criar um binário completamente estático (sem dependências de bibliotecas
 sudo apt install libwebp-dev:native libgif-dev:native libjpeg-dev:native
 
 # Build estático
-CGO_ENABLED=1 go build -ldflags="-linkmode external -extldflags '-static'" -o webp2gifjpeg
+CGO_ENABLED=1 go build -ldflags="-linkmode external -extldflags '-static'" -o webpconvert
 ```
 
 **Nota**: Static linking pode não funcionar em todos os sistemas operacionais.

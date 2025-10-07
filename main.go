@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/robsonalvesdevbr/webp2gifjpeg/converter"
+	"github.com/robsonalvesdevbr/webpconvert/converter"
 )
 
 func main() {
