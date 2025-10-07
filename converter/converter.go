@@ -70,7 +70,6 @@ func DetectWebPType(scriptMgr *ScriptManager, filePath string) (WebPType, error)
 
 	cmd := exec.Command("python3", scriptPath, filePath)
 	output, err := cmd.CombinedOutput()
-
 	// Exit codes: 0=static, 1=animated, 2=error
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -119,7 +118,7 @@ type ProcessOptions struct {
 // DefaultProcessOptions returns default configuration
 func DefaultProcessOptions() ProcessOptions {
 	return ProcessOptions{
-		JPEGQuality: 85,
+		JPEGQuality: 100,
 	}
 }
 
@@ -190,7 +189,6 @@ func ProcessDirectory(scriptMgr *ScriptManager, rootPath string, options Process
 		fmt.Printf("  Successfully converted\n")
 		return nil
 	})
-
 	if err != nil {
 		return fmt.Errorf("error walking directory: %w", err)
 	}

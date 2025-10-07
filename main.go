@@ -12,7 +12,7 @@ import (
 func main() {
 	// Define command line flags
 	dirPtr := flag.String("dir", ".", "Directory to process (default: current directory)")
-	qualityPtr := flag.Int("quality", 85, "JPEG quality for static WebP (1-100, default: 85)")
+	qualityPtr := flag.Int("quality", 100, "JPEG quality for static WebP (1-100, default: 100)")
 	flag.Parse()
 
 	// Validate quality

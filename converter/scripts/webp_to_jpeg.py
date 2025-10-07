@@ -13,14 +13,14 @@ except ImportError:
     sys.exit(1)
 
 
-def convert_webp_to_jpeg(input_path: str, output_path: str, quality: int = 85) -> bool:
+def convert_webp_to_jpeg(input_path: str, output_path: str, quality: int = 100) -> bool:
     """
     Convert static WebP to JPEG
 
     Args:
         input_path: Path to input WebP file
         output_path: Path to output JPEG file
-        quality: JPEG quality (1-100, default 85)
+        quality: JPEG quality (1-100, default 100)
 
     Returns:
         True if successful, False otherwise
@@ -81,7 +81,7 @@ def main():
 
     input_path = sys.argv[1]
     output_path = sys.argv[2]
-    quality = int(sys.argv[3]) if len(sys.argv) == 4 else 85
+    quality = int(sys.argv[3]) if len(sys.argv) == 4 else 100
 
     # Validate quality
     if not 1 <= quality <= 100:
