@@ -31,6 +31,25 @@ int encode_jpeg_to_file(const char *filename, unsigned char *rgb_data, int width
 
 	jpeg_set_defaults(&cinfo);
 	jpeg_set_quality(&cinfo, quality, TRUE);
+
+	// Optimize for quality
+	cinfo.dct_method = JDCT_ISLOW;  // Highest quality DCT method
+	cinfo.optimize_coding = TRUE;   // Optimize Huffman tables
+
+	// Enable progressive encoding FIRST (before setting chroma)
+	// jpeg_simple_progression() modifies the scan script and may reset component info
+	jpeg_simple_progression(&cinfo);
+
+	// CRITICAL: Disable chroma subsampling for maximum quality (4:4:4)
+	// This MUST be set AFTER jpeg_simple_progression() to prevent reset
+	// Default 4:2:0 loses 75% of color resolution - 4:4:4 keeps 100%
+	cinfo.comp_info[0].h_samp_factor = 1;
+	cinfo.comp_info[0].v_samp_factor = 1;
+	cinfo.comp_info[1].h_samp_factor = 1;
+	cinfo.comp_info[1].v_samp_factor = 1;
+	cinfo.comp_info[2].h_samp_factor = 1;
+	cinfo.comp_info[2].v_samp_factor = 1;
+
 	jpeg_start_compress(&cinfo, TRUE);
 
 	int row_stride = width * 3;
@@ -44,6 +63,15 @@ int encode_jpeg_to_file(const char *filename, unsigned char *rgb_data, int width
 	fclose(outfile);
 
 	return 0;
+}
+
+// Check if WebP has alpha channel
+int webp_has_alpha(const uint8_t *data, size_t data_size) {
+	WebPBitstreamFeatures features;
+	if (WebPGetFeatures(data, data_size, &features) != VP8_STATUS_OK) {
+		return -1;  // Error
+	}
+	return features.has_alpha ? 1 : 0;
 }
 */
 import "C"
@@ -71,49 +99,17 @@ func ConvertWebPToJPEG(inputPath, outputPath string, quality int) error {
 		return fmt.Errorf("WebP file is empty")
 	}
 
-	// Decode WebP to RGBA
-	var width, height C.int
-	decoded := C.WebPDecodeRGBA(
-		(*C.uint8_t)(unsafe.Pointer(&data[0])),
-		C.size_t(len(data)),
-		&width,
-		&height,
-	)
-
-	if decoded == nil {
-		return fmt.Errorf("failed to decode WebP image")
+	// Decode WebP using advanced decoder with maximum quality settings
+	decoded, err := DecodeWebPAdvanced(data)
+	if err != nil {
+		return fmt.Errorf("failed to decode WebP with advanced decoder: %w", err)
 	}
-	defer C.free(unsafe.Pointer(decoded))
 
-	w := int(width)
-	h := int(height)
-
-	// Convert RGBA to RGB (remove alpha channel, composite on white background)
-	rgbData := make([]byte, w*h*3)
-	rgbaData := unsafe.Slice(decoded, w*h*4)
-
-	for i := 0; i < w*h; i++ {
-		r := rgbaData[i*4]
-		g := rgbaData[i*4+1]
-		b := rgbaData[i*4+2]
-		a := rgbaData[i*4+3]
-
-		// Composite on white background if there's transparency
-		if a < 255 {
-			alpha := float32(a) / 255.0
-			invAlpha := 1.0 - alpha
-			r = C.uint8_t(float32(r)*alpha + 255*invAlpha)
-			g = C.uint8_t(float32(g)*alpha + 255*invAlpha)
-			b = C.uint8_t(float32(b)*alpha + 255*invAlpha)
-		}
-
-		rgbData[i*3] = byte(r)
-		rgbData[i*3+1] = byte(g)
-		rgbData[i*3+2] = byte(b)
-	}
+	// Convert to RGB (compositing alpha on white if needed)
+	rgbData := decoded.ToRGB()
 
 	// Encode to JPEG
-	if err := encodeJPEG(outputPath, rgbData, w, h, quality); err != nil {
+	if err := encodeJPEG(outputPath, rgbData, decoded.Width, decoded.Height, quality); err != nil {
 		return fmt.Errorf("failed to encode JPEG: %w", err)
 	}
 

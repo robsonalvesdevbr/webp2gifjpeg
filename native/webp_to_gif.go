@@ -7,6 +7,7 @@ package native
 #include <string.h>
 #include <webp/decode.h>
 #include <webp/demux.h>
+#include <webp/mux_types.h>
 #include <gif_lib.h>
 */
 import "C"
@@ -70,7 +71,8 @@ func ConvertWebPToGIF(inputPath, outputPath string) error {
 	}
 	defer C.EGifCloseFile(gifFile, &errCode)
 
-	// Set GIF screen descriptor
+	// Set GIF screen descriptor WITHOUT global color map (use local per frame)
+	// This allows each frame to have its own optimized 256-color palette
 	if C.EGifPutScreenDesc(gifFile, C.int(width), C.int(height), 8, 0, nil) == C.GIF_ERROR {
 		return fmt.Errorf("failed to write GIF screen descriptor")
 	}
@@ -88,40 +90,55 @@ func ConvertWebPToGIF(inputPath, outputPath string) error {
 	defer C.WebPDemuxReleaseIterator(&iter)
 
 	for {
-		// Decode frame to RGBA
-		var frameWidth, frameHeight C.int
-		rgba := C.WebPDecodeRGBA(
+		// Decode frame with proper blending/compositing
+		// Use WebPDecodeRGBA on the full fragment to get properly composited frame
+		fragmentSize := int(iter.fragment.size)
+
+		var outWidth, outHeight C.int
+		rgbaData := C.WebPDecodeRGBA(
 			iter.fragment.bytes,
-			iter.fragment.size,
-			&frameWidth,
-			&frameHeight,
+			C.size_t(fragmentSize),
+			&outWidth,
+			&outHeight,
 		)
-		if rgba == nil {
+
+		if rgbaData == nil {
 			return fmt.Errorf("failed to decode frame %d", iter.frame_num)
 		}
+		defer C.WebPFree(unsafe.Pointer(rgbaData))
 
-		// Convert RGBA to indexed color (GIF format)
-		w := int(frameWidth)
-		h := int(frameHeight)
-		indexedData, colorMap, err := rgbaToIndexed(rgba, w, h)
-		if err != nil {
-			C.free(unsafe.Pointer(rgba))
-			return fmt.Errorf("failed to convert frame %d to indexed: %w", iter.frame_num, err)
+		// Convert RGBA to RGB pixels
+		frameWidth := int(outWidth)
+		frameHeight := int(outHeight)
+		pixelCount := frameWidth * frameHeight
+		rgbPixels := make([]RGB, pixelCount)
+
+		rgbaSlice := unsafe.Slice((*byte)(rgbaData), pixelCount*4)
+		for i := 0; i < pixelCount; i++ {
+			rgbPixels[i] = RGB{
+				R: rgbaSlice[i*4],
+				G: rgbaSlice[i*4+1],
+				B: rgbaSlice[i*4+2],
+				// Skip alpha channel (i*4+3)
+			}
 		}
-		C.free(unsafe.Pointer(rgba))
 
-		// Create GIF color map
-		gifColorMap := C.GifMakeMapObject(256, nil)
-		if gifColorMap == nil {
-			return fmt.Errorf("failed to create color map for frame %d", iter.frame_num)
+		// Quantize frame to 256 colors using Octree (like Pillow does)
+		// Use simple Octree without dithering to match Python/Pillow behavior
+		indexedData, framePalette := QuantizeImageOctreeWithDimensions(rgbPixels, 256, frameWidth, frameHeight)
+
+		// Create local color map for this frame
+		localColorMap := C.GifMakeMapObject(256, nil)
+		if localColorMap == nil {
+			return fmt.Errorf("failed to create local color map for frame %d", iter.frame_num)
 		}
 
-		// Copy color map
-		colors := unsafe.Slice(gifColorMap.Colors, len(colorMap))
-		for i := 0; i < len(colorMap); i++ {
-			colors[i].Red = C.GifByteType(colorMap[i].R)
-			colors[i].Green = C.GifByteType(colorMap[i].G)
-			colors[i].Blue = C.GifByteType(colorMap[i].B)
+		// Copy frame palette to local color map
+		localColors := unsafe.Slice(localColorMap.Colors, len(framePalette))
+		for i := 0; i < len(framePalette); i++ {
+			localColors[i].Red = C.GifByteType(framePalette[i].R)
+			localColors[i].Green = C.GifByteType(framePalette[i].G)
+			localColors[i].Blue = C.GifByteType(framePalette[i].B)
 		}
 
 		// Add graphics control extension (for timing)
@@ -131,32 +148,30 @@ func ConvertWebPToGIF(inputPath, outputPath string) error {
 		}
 
 		var gce [4]C.GifByteType
-		gce[0] = 0 // No disposal method, no transparency
+		// Disposal method: 0 = unspecified (let decoder decide, like Pillow)
+		gce[0] = 0x00 // No disposal method specified
 		gce[1] = C.GifByteType(duration & 0xff)
 		gce[2] = C.GifByteType((duration >> 8) & 0xff)
 		gce[3] = 0 // No transparent color
 
 		if C.EGifPutExtension(gifFile, C.GRAPHICS_EXT_FUNC_CODE, 4, unsafe.Pointer(&gce[0])) == C.GIF_ERROR {
-			C.GifFreeMapObject(gifColorMap)
+			C.GifFreeMapObject(localColorMap)
 			return fmt.Errorf("failed to write graphics control extension")
 		}
 
-		// Write frame
-		if C.EGifPutImageDesc(gifFile, 0, 0, C.int(w), C.int(h), C.bool(false), gifColorMap) == C.GIF_ERROR {
-			C.GifFreeMapObject(gifColorMap)
+		// Write frame WITH local color map
+		if C.EGifPutImageDesc(gifFile, 0, 0, C.int(frameWidth), C.int(frameHeight), C.bool(false), localColorMap) == C.GIF_ERROR {
+			C.GifFreeMapObject(localColorMap)
 			return fmt.Errorf("failed to write image descriptor for frame %d", iter.frame_num)
 		}
 
 		// Write scanlines
-		for y := 0; y < h; y++ {
-			line := (*C.GifByteType)(unsafe.Pointer(&indexedData[y*w]))
-			if C.EGifPutLine(gifFile, line, C.int(w)) == C.GIF_ERROR {
-				C.GifFreeMapObject(gifColorMap)
+		for y := 0; y < frameHeight; y++ {
+			line := (*C.GifByteType)(unsafe.Pointer(&indexedData[y*frameWidth]))
+			if C.EGifPutLine(gifFile, line, C.int(frameWidth)) == C.GIF_ERROR {
 				return fmt.Errorf("failed to write scanline %d in frame %d", y, iter.frame_num)
 			}
 		}
-
-		C.GifFreeMapObject(gifColorMap)
 
 		// Move to next frame
 		if C.WebPDemuxNextFrame(&iter) == 0 {
@@ -192,72 +207,114 @@ func addLoopingExtension(gifFile *C.GifFileType) error {
 	return nil
 }
 
-// RGB represents an RGB color
-type RGB struct {
-	R, G, B byte
-}
+// analyzeAllFramesForGlobalPalette analyzes all frames to create a global color palette
+// This prevents color flickering between frames in the output GIF
+func analyzeAllFramesForGlobalPalette(demux *C.WebPDemuxer, width, height, frameCount int) ([]RGB, error) {
+	// Collect colors from all frames
+	allColors := make(map[uint32]int) // color -> frequency
 
-// rgbaToIndexed converts RGBA data to indexed color with palette (simple quantization)
-func rgbaToIndexed(rgba *C.uint8_t, width, height int) ([]byte, []RGB, error) {
-	size := width * height
-	indexed := make([]byte, size)
-	rgbaSlice := unsafe.Slice(rgba, size*4)
+	var iter C.WebPIterator
+	if C.WebPDemuxGetFrame(demux, 1, &iter) == 0 {
+		return nil, fmt.Errorf("failed to get first frame for analysis")
+	}
+	defer C.WebPDemuxReleaseIterator(&iter)
 
-	// Simple color quantization - use 256 color palette
-	// This is a basic implementation; for better quality, use a proper quantization algorithm
-	colorMap := make(map[uint32]byte)
-	palette := make([]RGB, 0, 256)
+	frameNum := 0
+	for {
+		frameNum++
 
-	for i := 0; i < size; i++ {
-		r := rgbaSlice[i*4]
-		g := rgbaSlice[i*4+1]
-		b := rgbaSlice[i*4+2]
-		a := rgbaSlice[i*4+3]
+		// Decode frame properly
+		fragmentSize := int(iter.fragment.size)
 
-		// Handle transparency by compositing on white
-		if a < 255 {
-			alpha := float32(a) / 255.0
-			invAlpha := 1.0 - alpha
-			r = C.uint8_t(float32(r)*alpha + 255*invAlpha)
-			g = C.uint8_t(float32(g)*alpha + 255*invAlpha)
-			b = C.uint8_t(float32(b)*alpha + 255*invAlpha)
+		var outWidth, outHeight C.int
+		rgbaData := C.WebPDecodeRGBA(
+			iter.fragment.bytes,
+			C.size_t(fragmentSize),
+			&outWidth,
+			&outHeight,
+		)
+
+		if rgbaData == nil {
+			return nil, fmt.Errorf("failed to decode frame %d during analysis", frameNum)
 		}
 
-		// Quantize to 6-bit per channel (6x6x6 = 216 colors)
-		qr := (uint32(r) * 5 / 255)
-		qg := (uint32(g) * 5 / 255)
-		qb := (uint32(b) * 5 / 255)
+		// Collect colors from RGBA data
+		frameWidth := int(outWidth)
+		frameHeight := int(outHeight)
+		pixelCount := frameWidth * frameHeight
 
-		colorKey := (qr << 16) | (qg << 8) | qb
-
-		idx, exists := colorMap[colorKey]
-		if !exists {
-			if len(palette) >= 256 {
-				// Palette full, use closest existing color
-				idx = findClosestColor(palette, byte(r), byte(g), byte(b))
-			} else {
-				idx = byte(len(palette))
-				palette = append(palette, RGB{
-					R: byte(qr * 255 / 5),
-					G: byte(qg * 255 / 5),
-					B: byte(qb * 255 / 5),
-				})
-				colorMap[colorKey] = idx
-			}
+		rgbaSlice := unsafe.Slice((*byte)(rgbaData), pixelCount*4)
+		for i := 0; i < pixelCount; i++ {
+			r := uint32(rgbaSlice[i*4])
+			g := uint32(rgbaSlice[i*4+1])
+			b := uint32(rgbaSlice[i*4+2])
+			colorKey := (r << 16) | (g << 8) | b
+			allColors[colorKey]++
 		}
-		indexed[i] = idx
+
+		C.WebPFree(unsafe.Pointer(rgbaData))
+
+		// Move to next frame
+		if C.WebPDemuxNextFrame(&iter) == 0 {
+			break
+		}
 	}
 
-	// Fill remaining palette entries with black if needed
-	for len(palette) < 256 {
-		palette = append(palette, RGB{0, 0, 0})
+	// Convert color histogram to RGB slice
+	colorList := make([]RGB, 0, len(allColors))
+	for colorKey := range allColors {
+		r := byte(colorKey >> 16)
+		g := byte(colorKey >> 8)
+		b := byte(colorKey)
+		colorList = append(colorList, RGB{R: r, G: g, B: b})
 	}
 
-	return indexed, palette, nil
+	// Use Octree to quantize to 256 colors
+	// Use reasonable dimensions for dithering (not needed for palette generation)
+	_, globalPalette := QuantizeImageOctreeWithDimensions(colorList, 256, width, height)
+
+	return globalPalette, nil
 }
 
-// findClosestColor finds the closest color in palette
-func findClosestColor(palette []RGB, r, g, b byte) byte {
+// mapPixelsToGlobalPalette maps RGB pixels to the global palette without dithering
+func mapPixelsToGlobalPalette(pixels []RGB, globalPalette []RGB, width, height int) []byte {
+	indexed := make([]byte, len(pixels))
+
+	// Build color lookup cache for performance
+	colorCache := make(map[uint32]byte, len(pixels)/4)
+
+	// Direct nearest-color matching without dithering
+	for i, p := range pixels {
+		// Try cache first
+		colorKey := (uint32(p.R) << 16) | (uint32(p.G) << 8) | uint32(p.B)
+		paletteIdx, inCache := colorCache[colorKey]
+
+		if !inCache {
+			// Find closest color using perceptual distance
+			paletteIdx = findClosestColorInPalette(globalPalette, p.R, p.G, p.B)
+			colorCache[colorKey] = paletteIdx
+		}
+
+		indexed[i] = paletteIdx
+	}
+
+	return indexed
+}
+
+// clampByte clamps an integer to byte range
+func clampByte(val int) byte {
+	if val < 0 {
+		return 0
+	}
+	if val > 255 {
+		return 255
+	}
+	return byte(val)
+}
+
+// findClosestColorInPalette finds the closest color in palette using weighted Euclidean distance
+// Weights are based on human color perception (green is more important)
+func findClosestColorInPalette(palette []RGB, r, g, b byte) byte {
 	minDist := uint32(0xFFFFFFFF)
 	closest := byte(0)
 
@@ -265,13 +322,20 @@ func findClosestColor(palette []RGB, r, g, b byte) byte {
 		dr := int(r) - int(c.R)
 		dg := int(g) - int(c.G)
 		db := int(b) - int(c.B)
-		dist := uint32(dr*dr + dg*dg + db*db)
+
+		// Weighted distance for better perceptual matching
+		// Human eye is more sensitive to green, then red, then blue
+		dist := uint32(2*dr*dr + 4*dg*dg + 3*db*db)
 
 		if dist < minDist {
 			minDist = dist
 			closest = byte(i)
 		}
+		if dist == 0 {
+			break // Exact match
+		}
 	}
 
 	return closest
 }
+
