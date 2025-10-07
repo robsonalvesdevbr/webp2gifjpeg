@@ -1,116 +1,15 @@
 package converter
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/robsonalvesdevbr/webp2gifjpeg/native"
 )
-
-// executePythonConversion executes a Python conversion script and handles temp files
-func executePythonConversion(scriptPath, inputPath, outputPath string, extraArgs ...string) error {
-	tempPath := outputPath + ".tmp"
-
-	// Build command arguments
-	args := []string{scriptPath, inputPath, tempPath}
-	args = append(args, extraArgs...)
-
-	// Execute Python script
-	cmd := exec.Command("python3", args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		os.Remove(tempPath)
-		return fmt.Errorf("conversion failed: %w\nOutput: %s", err, string(output))
-	}
-
-	// Verify output file was created
-	if _, err := os.Stat(tempPath); os.IsNotExist(err) {
-		return fmt.Errorf("output file was not created")
-	}
-
-	// Remove original WebP
-	if err := os.Remove(inputPath); err != nil {
-		os.Remove(tempPath)
-		return fmt.Errorf("failed to remove original file: %w", err)
-	}
-
-	// Rename temp file to final name
-	if err := os.Rename(tempPath, outputPath); err != nil {
-		return fmt.Errorf("failed to rename temp file: %w", err)
-	}
-
-	return nil
-}
-
-// WebPType represents the type of a WebP file
-type WebPType int
-
-const (
-	WebPTypeUnknown WebPType = iota
-	WebPTypeStatic
-	WebPTypeAnimated
-)
-
-func (t WebPType) String() string {
-	switch t {
-	case WebPTypeStatic:
-		return "static"
-	case WebPTypeAnimated:
-		return "animated"
-	default:
-		return "unknown"
-	}
-}
-
-// DetectWebPType detects if a WebP file is animated or static using Python/Pillow
-func DetectWebPType(scriptMgr *ScriptManager, filePath string) (WebPType, error) {
-	scriptPath := scriptMgr.GetScriptPath("detect_webp_type.py")
-
-	cmd := exec.Command("python3", scriptPath, filePath)
-	output, err := cmd.CombinedOutput()
-	// Exit codes: 0=static, 1=animated, 2=error
-	if err != nil {
-		var exitErr *exec.ExitError
-		if ok := errors.As(err, &exitErr); ok {
-			switch exitErr.ExitCode() {
-			case 0:
-				return WebPTypeStatic, nil
-			case 1:
-				return WebPTypeAnimated, nil
-			default:
-				return WebPTypeUnknown, fmt.Errorf("detection failed: %s", string(output))
-			}
-		}
-		return WebPTypeUnknown, fmt.Errorf("failed to execute detection script: %w", err)
-	}
-
-	// Exit code 0 (static)
-	return WebPTypeStatic, nil
-}
-
-// ConvertWebPToGIF converts an animated WebP file to GIF format using Python/PIL
-func ConvertWebPToGIF(scriptMgr *ScriptManager, inputPath string) error {
-	scriptPath := scriptMgr.GetScriptPath("webp_to_gif.py")
-	outputPath := strings.TrimSuffix(inputPath, filepath.Ext(inputPath)) + ".gif"
-	return executePythonConversion(scriptPath, inputPath, outputPath)
-}
-
-// ConvertWebPToJPEG converts a static WebP file to JPEG format using Python/PIL
-// quality: JPEG quality (1-100), recommended 85
-func ConvertWebPToJPEG(scriptMgr *ScriptManager, inputPath string, quality int) error {
-	// Validate quality
-	if quality < 1 || quality > 100 {
-		return fmt.Errorf("quality must be between 1 and 100, got %d", quality)
-	}
-
-	scriptPath := scriptMgr.GetScriptPath("webp_to_jpeg.py")
-	outputPath := strings.TrimSuffix(inputPath, filepath.Ext(inputPath)) + ".jpg"
-	return executePythonConversion(scriptPath, inputPath, outputPath, fmt.Sprintf("%d", quality))
-}
 
 // ProcessOptions configures the conversion behavior
 type ProcessOptions struct {
@@ -136,7 +35,7 @@ type ConversionJob struct {
 type ConversionResult struct {
 	Path     string
 	Success  bool
-	Type     WebPType
+	Type     native.WebPType
 	Error    error
 	FilePath string // Output file path
 }
@@ -150,14 +49,14 @@ type ProcessStats struct {
 }
 
 // convertSingleFile processes a single WebP file
-func convertSingleFile(scriptMgr *ScriptManager, path string, options ProcessOptions) ConversionResult {
+func convertSingleFile(path string, options ProcessOptions) ConversionResult {
 	result := ConversionResult{
 		Path:    path,
 		Success: false,
 	}
 
-	// Detect WebP type
-	webpType, err := DetectWebPType(scriptMgr, path)
+	// Detect WebP type using native implementation
+	webpType, err := native.DetectWebPType(path)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to detect type: %w", err)
 		return result
@@ -165,15 +64,22 @@ func convertSingleFile(scriptMgr *ScriptManager, path string, options ProcessOpt
 
 	result.Type = webpType
 
+	// Create temp output path
+	baseWithoutExt := strings.TrimSuffix(path, filepath.Ext(path))
+	var outputPath string
+	var tempPath string
+
 	// Route to appropriate converter
 	switch webpType {
-	case WebPTypeAnimated:
-		result.FilePath = strings.TrimSuffix(path, filepath.Ext(path)) + ".gif"
-		err = ConvertWebPToGIF(scriptMgr, path)
+	case native.WebPTypeAnimated:
+		outputPath = baseWithoutExt + ".gif"
+		tempPath = outputPath + ".tmp"
+		err = native.ConvertWebPToGIF(path, tempPath)
 
-	case WebPTypeStatic:
-		result.FilePath = strings.TrimSuffix(path, filepath.Ext(path)) + ".jpg"
-		err = ConvertWebPToJPEG(scriptMgr, path, options.JPEGQuality)
+	case native.WebPTypeStatic:
+		outputPath = baseWithoutExt + ".jpg"
+		tempPath = outputPath + ".tmp"
+		err = native.ConvertWebPToJPEG(path, tempPath, options.JPEGQuality)
 
 	default:
 		result.Error = fmt.Errorf("unknown WebP type")
@@ -181,20 +87,41 @@ func convertSingleFile(scriptMgr *ScriptManager, path string, options ProcessOpt
 	}
 
 	if err != nil {
+		os.Remove(tempPath)
 		result.Error = err
 		return result
 	}
 
+	// Verify temp file was created
+	if _, err := os.Stat(tempPath); os.IsNotExist(err) {
+		result.Error = fmt.Errorf("output file was not created")
+		return result
+	}
+
+	// Remove original WebP
+	if err := os.Remove(path); err != nil {
+		os.Remove(tempPath)
+		result.Error = fmt.Errorf("failed to remove original file: %w", err)
+		return result
+	}
+
+	// Rename temp file to final name
+	if err := os.Rename(tempPath, outputPath); err != nil {
+		result.Error = fmt.Errorf("failed to rename temp file: %w", err)
+		return result
+	}
+
 	result.Success = true
+	result.FilePath = outputPath
 	return result
 }
 
 // worker processes jobs from the jobs channel
-func worker(id int, jobs <-chan ConversionJob, results chan<- ConversionResult, scriptMgr *ScriptManager, options ProcessOptions, wg *sync.WaitGroup) {
+func worker(id int, jobs <-chan ConversionJob, results chan<- ConversionResult, options ProcessOptions, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for job := range jobs {
-		result := convertSingleFile(scriptMgr, job.Path, options)
+		result := convertSingleFile(job.Path, options)
 		results <- result
 	}
 }
@@ -214,12 +141,12 @@ func collectStats(results <-chan ConversionResult, total int, verbose bool) Proc
 		if result.Success {
 			stats.TotalProcessed++
 			switch result.Type {
-			case WebPTypeAnimated:
+			case native.WebPTypeAnimated:
 				stats.AnimatedCount++
 				if verbose {
 					fmt.Printf("  Type: Animated → Converted to GIF\n")
 				}
-			case WebPTypeStatic:
+			case native.WebPTypeStatic:
 				stats.StaticCount++
 				if verbose {
 					fmt.Printf("  Type: Static → Converted to JPEG\n")
@@ -240,7 +167,7 @@ func collectStats(results <-chan ConversionResult, total int, verbose bool) Proc
 }
 
 // ProcessDirectoryParallel recursively processes all WebP files in a directory using parallel workers
-func ProcessDirectoryParallel(scriptMgr *ScriptManager, rootPath string, options ProcessOptions) error {
+func ProcessDirectoryParallel(rootPath string, options ProcessOptions) error {
 	// Phase 1: Scan - Collect all WebP files
 	var webpFiles []ConversionJob
 
@@ -287,7 +214,7 @@ func ProcessDirectoryParallel(scriptMgr *ScriptManager, rootPath string, options
 	var wg sync.WaitGroup
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go worker(i, jobs, results, scriptMgr, options, &wg)
+		go worker(i, jobs, results, options, &wg)
 	}
 
 	// Start stats collector in a separate goroutine
@@ -323,7 +250,7 @@ func ProcessDirectoryParallel(scriptMgr *ScriptManager, rootPath string, options
 }
 
 // ProcessDirectory recursively processes all WebP files in a directory
-func ProcessDirectory(scriptMgr *ScriptManager, rootPath string, options ProcessOptions) error {
+func ProcessDirectory(rootPath string, options ProcessOptions) error {
 	var processedCount int
 	var errorCount int
 	var staticCount int
@@ -347,7 +274,7 @@ func ProcessDirectory(scriptMgr *ScriptManager, rootPath string, options Process
 		fmt.Printf("Processing: %s\n", path)
 
 		// Convert the file
-		result := convertSingleFile(scriptMgr, path, options)
+		result := convertSingleFile(path, options)
 
 		// Handle result
 		if !result.Success {
@@ -360,10 +287,10 @@ func ProcessDirectory(scriptMgr *ScriptManager, rootPath string, options Process
 
 		// Update counters based on type
 		switch result.Type {
-		case WebPTypeAnimated:
+		case native.WebPTypeAnimated:
 			fmt.Printf("  Type: Animated → Converted to GIF\n")
 			animatedCount++
-		case WebPTypeStatic:
+		case native.WebPTypeStatic:
 			fmt.Printf("  Type: Static → Converted to JPEG (quality %d)\n", options.JPEGQuality)
 			staticCount++
 		}
@@ -383,16 +310,4 @@ func ProcessDirectory(scriptMgr *ScriptManager, rootPath string, options Process
 	fmt.Printf("  Errors: %d\n", errorCount)
 
 	return nil
-}
-
-// IsAnimatedWebP checks if a WebP file is animated
-func IsAnimatedWebP(filePath string) (bool, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return false, err
-	}
-
-	// Check for ANIM chunk in WebP file
-	// This is a simplified check - a complete implementation would parse the WebP format
-	return len(data) > 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP", nil
 }

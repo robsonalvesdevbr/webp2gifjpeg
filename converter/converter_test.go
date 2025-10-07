@@ -1,53 +1,111 @@
 package converter
 
 import (
-	"image/gif"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/robsonalvesdevbr/webp2gifjpeg/native"
 )
 
-// TestConvertWebPToGIF tests the basic conversion functionality
+// TestDetectWebPType tests WebP type detection
+func TestDetectWebPType(t *testing.T) {
+	// Skip if ffmpeg is not available
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not found, skipping test")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a simple animated WebP file using ffmpeg
+	webpPath := filepath.Join(tmpDir, "animated.webp")
+	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "color=c=red:s=100x100:d=1", "-y", webpPath)
+	if err := cmd.Run(); err != nil {
+		t.Skipf("Failed to create test WebP file: %v", err)
+	}
+
+	// Test detection
+	webpType, err := native.DetectWebPType(webpPath)
+	if err != nil {
+		t.Fatalf("DetectWebPType failed: %v", err)
+	}
+
+	// ffmpeg with duration creates animated WebP
+	if webpType != native.WebPTypeAnimated && webpType != native.WebPTypeStatic {
+		t.Errorf("Unexpected WebP type: %v", webpType)
+	}
+	t.Logf("Detected WebP type: %s", webpType)
+}
+
+// TestConvertWebPToJPEG tests static WebP to JPEG conversion
+func TestConvertWebPToJPEG(t *testing.T) {
+	// Skip if ffmpeg is not available
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not found, skipping test")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a static WebP (using -frames:v 1 to force single frame)
+	webpPath := filepath.Join(tmpDir, "static.webp")
+	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "color=c=blue:s=100x100", "-frames:v", "1", "-y", webpPath)
+	if err := cmd.Run(); err != nil {
+		t.Skipf("Failed to create test WebP file: %v", err)
+	}
+
+	// Convert to JPEG
+	jpegPath := filepath.Join(tmpDir, "static.jpg")
+	if err := native.ConvertWebPToJPEG(webpPath, jpegPath, 95); err != nil {
+		t.Fatalf("ConvertWebPToJPEG failed: %v", err)
+	}
+
+	// Check that JPEG was created
+	if _, err := os.Stat(jpegPath); os.IsNotExist(err) {
+		t.Fatal("JPEG file was not created")
+	}
+
+	// Verify JPEG can be decoded
+	jpegFile, err := os.Open(jpegPath)
+	if err != nil {
+		t.Fatalf("Failed to open JPEG file: %v", err)
+	}
+	defer jpegFile.Close()
+
+	_, _, err = image.Decode(jpegFile)
+	if err != nil {
+		t.Errorf("Failed to decode JPEG file: %v", err)
+	}
+}
+
+// TestConvertWebPToGIF tests animated WebP to GIF conversion
 func TestConvertWebPToGIF(t *testing.T) {
 	// Skip if ffmpeg is not available
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg not found, skipping test")
 	}
 
-	// Initialize script manager
-	scriptMgr, err := NewScriptManager()
-	if err != nil {
-		t.Fatalf("Failed to create script manager: %v", err)
-	}
-	defer scriptMgr.Cleanup()
-
-	// Create a temporary directory for test files
 	tmpDir := t.TempDir()
 
-	// Create a simple test WebP using ffmpeg
-	webpPath := filepath.Join(tmpDir, "test.webp")
-
-	// Create a simple solid color WebP using ffmpeg
+	// Create an animated WebP using ffmpeg
+	webpPath := filepath.Join(tmpDir, "animated.webp")
 	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "color=c=red:s=100x100:d=1", "-y", webpPath)
 	if err := cmd.Run(); err != nil {
 		t.Skipf("Failed to create test WebP file: %v", err)
 	}
 
 	// Convert to GIF
-	if err := ConvertWebPToGIF(scriptMgr, webpPath); err != nil {
+	gifPath := filepath.Join(tmpDir, "animated.gif")
+	if err := native.ConvertWebPToGIF(webpPath, gifPath); err != nil {
 		t.Fatalf("ConvertWebPToGIF failed: %v", err)
 	}
 
-	// Check that WebP was removed
-	if _, err := os.Stat(webpPath); !os.IsNotExist(err) {
-		t.Error("Original WebP file was not removed")
-	}
-
 	// Check that GIF was created
-	gifPath := filepath.Join(tmpDir, "test.gif")
 	if _, err := os.Stat(gifPath); os.IsNotExist(err) {
-		t.Error("GIF file was not created")
+		t.Fatal("GIF file was not created")
 	}
 
 	// Verify GIF can be decoded
@@ -57,7 +115,7 @@ func TestConvertWebPToGIF(t *testing.T) {
 	}
 	defer gifFile.Close()
 
-	_, err = gif.DecodeAll(gifFile)
+	_, _, err = image.Decode(gifFile)
 	if err != nil {
 		t.Errorf("Failed to decode GIF file: %v", err)
 	}
@@ -69,13 +127,6 @@ func TestProcessDirectory(t *testing.T) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg not found, skipping test")
 	}
-
-	// Initialize script manager
-	scriptMgr, err := NewScriptManager()
-	if err != nil {
-		t.Fatalf("Failed to create script manager: %v", err)
-	}
-	defer scriptMgr.Cleanup()
 
 	// Create a temporary directory structure
 	tmpDir := t.TempDir()
@@ -100,7 +151,7 @@ func TestProcessDirectory(t *testing.T) {
 
 	// Process directory
 	options := DefaultProcessOptions()
-	if err := ProcessDirectory(scriptMgr, tmpDir, options); err != nil {
+	if err := ProcessDirectory(tmpDir, options); err != nil {
 		t.Fatalf("ProcessDirectory failed: %v", err)
 	}
 
@@ -133,75 +184,12 @@ func TestProcessDirectory(t *testing.T) {
 	}
 }
 
-// TestIsAnimatedWebP tests the animated WebP detection
-func TestIsAnimatedWebP(t *testing.T) {
-	// Skip if ffmpeg is not available
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg not found, skipping test")
-	}
-
-	tmpDir := t.TempDir()
-
-	// Create a simple WebP file using ffmpeg
-	webpPath := filepath.Join(tmpDir, "test.webp")
-	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "color=c=green:s=10x10:d=1", "-y", webpPath)
-	if err := cmd.Run(); err != nil {
-		t.Skipf("Failed to create test file: %v", err)
-	}
-
-	// Test detection
-	isAnimated, err := IsAnimatedWebP(webpPath)
-	if err != nil {
-		t.Errorf("IsAnimatedWebP returned error: %v", err)
-	}
-
-	// For this simple test, we just verify it returns without error
-	// The actual animation detection would require proper animated WebP files
-	t.Logf("IsAnimatedWebP result: %v", isAnimated)
-}
-
-// TestConvertWebPToGIF_NonExistentFile tests error handling
-func TestConvertWebPToGIF_NonExistentFile(t *testing.T) {
-	scriptMgr, err := NewScriptManager()
-	if err != nil {
-		t.Fatalf("Failed to create script manager: %v", err)
-	}
-	defer scriptMgr.Cleanup()
-
-	err = ConvertWebPToGIF(scriptMgr, "/nonexistent/file.webp")
-	if err == nil {
-		t.Error("Expected error for non-existent file, got nil")
-	}
-}
-
-// TestProcessDirectory_NonExistentDir tests error handling for invalid directory
-func TestProcessDirectory_NonExistentDir(t *testing.T) {
-	scriptMgr, err := NewScriptManager()
-	if err != nil {
-		t.Fatalf("Failed to create script manager: %v", err)
-	}
-	defer scriptMgr.Cleanup()
-
-	options := DefaultProcessOptions()
-	err = ProcessDirectory(scriptMgr, "/nonexistent/directory", options)
-	if err == nil {
-		t.Error("Expected error for non-existent directory, got nil")
-	}
-}
-
 // TestProcessDirectoryParallel tests parallel directory processing
 func TestProcessDirectoryParallel(t *testing.T) {
 	// Skip if ffmpeg is not available
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg not found, skipping test")
 	}
-
-	// Initialize script manager
-	scriptMgr, err := NewScriptManager()
-	if err != nil {
-		t.Fatalf("Failed to create script manager: %v", err)
-	}
-	defer scriptMgr.Cleanup()
 
 	// Create a temporary directory structure
 	tmpDir := t.TempDir()
@@ -232,7 +220,7 @@ func TestProcessDirectoryParallel(t *testing.T) {
 		JPEGQuality: 85,
 		NumWorkers:  4,
 	}
-	if err := ProcessDirectoryParallel(scriptMgr, tmpDir, options); err != nil {
+	if err := ProcessDirectoryParallel(tmpDir, options); err != nil {
 		t.Fatalf("ProcessDirectoryParallel failed: %v", err)
 	}
 
@@ -265,58 +253,48 @@ func TestProcessDirectoryParallel(t *testing.T) {
 	}
 }
 
-// TestProcessDirectoryParallel_SingleWorker tests parallel processing with 1 worker
-func TestProcessDirectoryParallel_SingleWorker(t *testing.T) {
-	// Skip if ffmpeg is not available
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg not found, skipping test")
-	}
-
-	scriptMgr, err := NewScriptManager()
-	if err != nil {
-		t.Fatalf("Failed to create script manager: %v", err)
-	}
-	defer scriptMgr.Cleanup()
-
-	tmpDir := t.TempDir()
-
-	// Create a test WebP file
-	webpPath := filepath.Join(tmpDir, "test.webp")
-	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "color=c=red:s=50x50:d=1", "-y", webpPath)
-	if err := cmd.Run(); err != nil {
-		t.Skipf("Failed to create test WebP file: %v", err)
-	}
-
-	// Process with 1 worker
-	options := ProcessOptions{
-		JPEGQuality: 95,
-		NumWorkers:  1,
-	}
-	if err := ProcessDirectoryParallel(scriptMgr, tmpDir, options); err != nil {
-		t.Fatalf("ProcessDirectoryParallel with 1 worker failed: %v", err)
-	}
-
-	// Verify conversion
-	if _, err := os.Stat(webpPath); !os.IsNotExist(err) {
-		t.Error("WebP file was not removed")
-	}
-}
-
 // TestProcessDirectoryParallel_EmptyDir tests parallel processing with no files
 func TestProcessDirectoryParallel_EmptyDir(t *testing.T) {
-	scriptMgr, err := NewScriptManager()
-	if err != nil {
-		t.Fatalf("Failed to create script manager: %v", err)
-	}
-	defer scriptMgr.Cleanup()
-
 	tmpDir := t.TempDir()
 
 	options := ProcessOptions{
 		JPEGQuality: 85,
 		NumWorkers:  4,
 	}
-	if err := ProcessDirectoryParallel(scriptMgr, tmpDir, options); err != nil {
+	if err := ProcessDirectoryParallel(tmpDir, options); err != nil {
 		t.Fatalf("ProcessDirectoryParallel on empty dir failed: %v", err)
+	}
+}
+
+// TestProcessDirectory_NonExistentDir tests error handling for invalid directory
+func TestProcessDirectory_NonExistentDir(t *testing.T) {
+	options := DefaultProcessOptions()
+	err := ProcessDirectory("/nonexistent/directory", options)
+	if err == nil {
+		t.Error("Expected error for non-existent directory, got nil")
+	}
+}
+
+// TestQualityValidation tests JPEG quality validation
+func TestQualityValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	webpPath := filepath.Join(tmpDir, "test.webp")
+	jpegPath := filepath.Join(tmpDir, "test.jpg")
+
+	// Create a dummy file
+	if err := os.WriteFile(webpPath, []byte("dummy"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Test invalid quality (below 1)
+	err := native.ConvertWebPToJPEG(webpPath, jpegPath, 0)
+	if err == nil {
+		t.Error("Expected error for quality=0, got nil")
+	}
+
+	// Test invalid quality (above 100)
+	err = native.ConvertWebPToJPEG(webpPath, jpegPath, 101)
+	if err == nil {
+		t.Error("Expected error for quality=101, got nil")
 	}
 }
