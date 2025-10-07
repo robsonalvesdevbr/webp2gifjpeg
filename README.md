@@ -65,7 +65,7 @@ Conversor de imagens **standalone** em Go com foco em conversões bi-direcionais
 
    ```bash
    # Ubuntu/Debian
-   sudo apt install libwebp-dev giflib-dev libjpeg-dev
+   sudo apt install libwebp-dev libgif-dev libjpeg-dev
 
    # macOS
    brew install webp giflib jpeg pkg-config
@@ -323,7 +323,7 @@ go build -v
 Instale giflib:
 ```bash
 # Ubuntu/Debian
-sudo apt install giflib-dev
+sudo apt install libgif-dev
 
 # macOS
 brew install giflib
