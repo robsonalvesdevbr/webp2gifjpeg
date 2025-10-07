@@ -188,3 +188,135 @@ func TestProcessDirectory_NonExistentDir(t *testing.T) {
 		t.Error("Expected error for non-existent directory, got nil")
 	}
 }
+
+// TestProcessDirectoryParallel tests parallel directory processing
+func TestProcessDirectoryParallel(t *testing.T) {
+	// Skip if ffmpeg is not available
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not found, skipping test")
+	}
+
+	// Initialize script manager
+	scriptMgr, err := NewScriptManager()
+	if err != nil {
+		t.Fatalf("Failed to create script manager: %v", err)
+	}
+	defer scriptMgr.Cleanup()
+
+	// Create a temporary directory structure
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "subdir")
+	if err := os.Mkdir(subDir, 0755); err != nil {
+		t.Fatalf("Failed to create subdirectory: %v", err)
+	}
+
+	// Create multiple WebP files in different directories using ffmpeg
+	testFiles := []string{
+		filepath.Join(tmpDir, "test1.webp"),
+		filepath.Join(tmpDir, "test2.webp"),
+		filepath.Join(tmpDir, "test3.webp"),
+		filepath.Join(tmpDir, "test4.webp"),
+		filepath.Join(subDir, "test5.webp"),
+		filepath.Join(subDir, "test6.webp"),
+	}
+
+	for _, path := range testFiles {
+		cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "color=c=blue:s=50x50:d=1", "-y", path)
+		if err := cmd.Run(); err != nil {
+			t.Skipf("Failed to create test WebP file %s: %v", path, err)
+		}
+	}
+
+	// Process directory with parallel workers
+	options := ProcessOptions{
+		JPEGQuality: 85,
+		NumWorkers:  4,
+	}
+	if err := ProcessDirectoryParallel(scriptMgr, tmpDir, options); err != nil {
+		t.Fatalf("ProcessDirectoryParallel failed: %v", err)
+	}
+
+	// Check that all WebP files were converted
+	for _, webpPath := range testFiles {
+		// WebP should be removed
+		if _, err := os.Stat(webpPath); !os.IsNotExist(err) {
+			t.Errorf("WebP file %s was not removed", webpPath)
+		}
+
+		// Check if GIF or JPEG was created
+		basePath := webpPath[:len(webpPath)-5]
+		gifPath := basePath + ".gif"
+		jpegPath := basePath + ".jpg"
+
+		gifExists := true
+		jpegExists := true
+
+		if _, err := os.Stat(gifPath); os.IsNotExist(err) {
+			gifExists = false
+		}
+		if _, err := os.Stat(jpegPath); os.IsNotExist(err) {
+			jpegExists = false
+		}
+
+		// At least one output format should exist
+		if !gifExists && !jpegExists {
+			t.Errorf("Neither GIF nor JPEG was created for %s", webpPath)
+		}
+	}
+}
+
+// TestProcessDirectoryParallel_SingleWorker tests parallel processing with 1 worker
+func TestProcessDirectoryParallel_SingleWorker(t *testing.T) {
+	// Skip if ffmpeg is not available
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not found, skipping test")
+	}
+
+	scriptMgr, err := NewScriptManager()
+	if err != nil {
+		t.Fatalf("Failed to create script manager: %v", err)
+	}
+	defer scriptMgr.Cleanup()
+
+	tmpDir := t.TempDir()
+
+	// Create a test WebP file
+	webpPath := filepath.Join(tmpDir, "test.webp")
+	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "color=c=red:s=50x50:d=1", "-y", webpPath)
+	if err := cmd.Run(); err != nil {
+		t.Skipf("Failed to create test WebP file: %v", err)
+	}
+
+	// Process with 1 worker
+	options := ProcessOptions{
+		JPEGQuality: 95,
+		NumWorkers:  1,
+	}
+	if err := ProcessDirectoryParallel(scriptMgr, tmpDir, options); err != nil {
+		t.Fatalf("ProcessDirectoryParallel with 1 worker failed: %v", err)
+	}
+
+	// Verify conversion
+	if _, err := os.Stat(webpPath); !os.IsNotExist(err) {
+		t.Error("WebP file was not removed")
+	}
+}
+
+// TestProcessDirectoryParallel_EmptyDir tests parallel processing with no files
+func TestProcessDirectoryParallel_EmptyDir(t *testing.T) {
+	scriptMgr, err := NewScriptManager()
+	if err != nil {
+		t.Fatalf("Failed to create script manager: %v", err)
+	}
+	defer scriptMgr.Cleanup()
+
+	tmpDir := t.TempDir()
+
+	options := ProcessOptions{
+		JPEGQuality: 85,
+		NumWorkers:  4,
+	}
+	if err := ProcessDirectoryParallel(scriptMgr, tmpDir, options); err != nil {
+		t.Fatalf("ProcessDirectoryParallel on empty dir failed: %v", err)
+	}
+}
