@@ -18,38 +18,69 @@ Conversor de imagens **standalone** em Go com foco em conversões bi-direcionais
 - ✅ **Implementação nativa em C** (CGO + libwebp + libjpeg + giflib)
 - ✅ **Zero dependências runtime** (apenas bibliotecas do sistema)
 
+### Recursos Avançados de Qualidade
+
+- ✅ **Decodificação Avançada WebP**: Configuração otimizada com fancy upsampling e controle de dithering
+- ✅ **Quantização de Cores Octree**: Algoritmo customizado para paletas GIF de alta qualidade (256 cores)
+- ✅ **Quantização Median Cut**: Algoritmo alternativo para conteúdo fotográfico
+- ✅ **Paletas Locais por Frame**: Cada frame GIF tem sua própria paleta otimizada
+- ✅ **Distância de Cor Perceptual**: Correspondência de cores ponderada pela sensibilidade humana
+- ✅ **JPEG 4:4:4 Chroma**: Sem subsampling de croma para máxima qualidade de cor
+- ✅ **Progressive JPEG**: Encoding progressivo com DCT de alta qualidade (JDCT_ISLOW)
+- ✅ **Composição Alpha com Precisão**: Aritmética de ponto flutuante para evitar perda de qualidade
+
 ## Requisitos
 
 ### Para Uso (Runtime)
 
 **Nenhuma dependência adicional!** O binário é standalone e usa apenas bibliotecas do sistema que já estão instaladas:
 
-- `libwebp7` (geralmente já instalado)
+- `libwebp7` / `libwebpdemux2` (geralmente já instalado)
 - `libgif7` (geralmente já instalado)
-- `libjpeg` (geralmente já instalado)
+- `libjpeg` / `libjpeg-turbo` (geralmente já instalado)
 
 ### Para Desenvolvimento (Build)
 
-1. **Go 1.21 ou superior**
+1. **Go 1.23 ou superior**
 
    ```bash
    go version
    ```
 
-2. **Bibliotecas de desenvolvimento**
+2. **Compilador C e pkg-config**
 
    ```bash
    # Ubuntu/Debian
-   sudo apt install libwebp-dev libgif-dev libjpeg-dev
+   sudo apt install build-essential pkg-config
+
+   # macOS (via Xcode Command Line Tools)
+   xcode-select --install
+
+   # Fedora/RHEL
+   sudo dnf install gcc pkg-config
+   ```
+
+3. **Bibliotecas de desenvolvimento**
+
+   ```bash
+   # Ubuntu/Debian
+   sudo apt install libwebp-dev giflib-dev libjpeg-dev
 
    # macOS
-   brew install webp giflib jpeg
+   brew install webp giflib jpeg pkg-config
 
    # Fedora/RHEL
    sudo dnf install libwebp-devel giflib-devel libjpeg-turbo-devel
+
+   # Windows (MSYS2)
+   pacman -S mingw-w64-x86_64-libwebp \
+             mingw-w64-x86_64-giflib \
+             mingw-w64-x86_64-libjpeg-turbo \
+             mingw-w64-x86_64-pkg-config \
+             mingw-w64-x86_64-gcc
    ```
 
-3. **CGO habilitado** (geralmente já está por padrão)
+4. **CGO habilitado** (geralmente já está por padrão)
 
    ```bash
    export CGO_ENABLED=1
@@ -147,8 +178,11 @@ webpconvert/
 │   └── converter_test.go      # Testes unitários
 ├── native/                    # Implementação nativa em C via CGO
 │   ├── webp_detector.go       # Detecção de tipo WebP (animado/estático)
-│   ├── webp_to_jpeg.go        # Conversão WebP → JPEG usando libjpeg
-│   └── webp_to_gif.go         # Conversão WebP animado → GIF usando giflib
+│   ├── webp_decoder.go        # Decodificador WebP avançado com RGBA/BGRA
+│   ├── webp_to_jpeg.go        # Conversão WebP → JPEG com 4:4:4 chroma
+│   ├── webp_to_gif.go         # Conversão WebP → GIF com paletas locais
+│   ├── octree_quantizer.go    # Algoritmo Octree para quantização de cores
+│   └── median_cut.go          # Algoritmo Median Cut para conteúdo fotográfico
 ├── go.mod                     # Dependências
 ├── .gitignore                 # Arquivos ignorados pelo Git
 └── README.md                  # Documentação
@@ -159,19 +193,35 @@ webpconvert/
 ### Arquitetura Nativa
 
 1. **Detecção de Tipo**: Usa `libwebp` (WebPDemux) para detectar se o WebP é animado ou estático
-2. **Conversão WebP → JPEG**:
-   - Decode WebP usando `WebPDecodeRGBA` (libwebp)
-   - Tratamento de transparência (composite em fundo branco)
-   - Encode JPEG usando `libjpeg` com qualidade configurável
-3. **Conversão WebP Animado → GIF**:
-   - Demux WebP animado usando `WebPAnimDecoder` (libwebpdemux)
-   - Extração de todos os frames + delays
-   - Quantização de cores (256 cores)
-   - Encode GIF usando `giflib` com suporte a looping
+
+2. **Conversão WebP → JPEG** (Alta Qualidade):
+   - Decode WebP usando decodificador avançado com configuração otimizada
+   - Fancy upsampling para melhor qualidade
+   - Composição alpha com aritmética de ponto flutuante (precisão)
+   - Encode JPEG com:
+     - Chroma subsampling 4:4:4 (sem perda de cor)
+     - DCT método JDCT_ISLOW (máxima qualidade)
+     - Progressive encoding
+     - Huffman optimization
+     - Qualidade configurável (default: 100)
+
+3. **Conversão WebP Animado → GIF** (Paletas Otimizadas):
+   - Demux WebP usando `WebPDemuxer` (libwebpdemux)
+   - Decode de cada frame com `WebPDecodeRGBA` (composição automática)
+   - Quantização de cores por frame usando **Octree** ou **Median Cut**:
+     - Paleta local de 256 cores otimizada para cada frame
+     - Distância de cor perceptual (ponderada: verde > vermelho > azul)
+     - Cache de correspondência de cores para performance
+   - Encode GIF usando `giflib`:
+     - Suporte a looping infinito (Netscape 2.0 extension)
+     - Preservação de timing entre frames
+     - Disposal method configurável
+
 4. **Processamento**:
    - Scan recursivo do diretório para encontrar arquivos `.webp`
    - Processamento paralelo usando goroutines (workers configuráveis)
    - Substituição automática dos arquivos originais
+
 5. **Estatísticas**: Exibe resumo detalhado com contadores de conversão
 
 ### Performance
@@ -191,6 +241,86 @@ O processamento paralelo oferece ganhos significativos de performance:
 - Para poucos arquivos (< 10): Use `-workers 1` (overhead mínimo)
 - Para muitos arquivos: Use default (CPU count) ou ajuste conforme necessário
 - Para sistemas com poucos recursos: Limite workers para evitar sobrecarga
+
+## Troubleshooting
+
+### Problemas Comuns de Build
+
+#### "pkg-config not found"
+Instale o pkg-config:
+```bash
+# Ubuntu/Debian
+sudo apt install pkg-config
+
+# macOS
+brew install pkg-config
+
+# Fedora/RHEL
+sudo dnf install pkg-config
+```
+
+#### "Package libwebp was not found"
+Instale as bibliotecas de desenvolvimento:
+```bash
+# Ubuntu/Debian
+sudo apt install libwebp-dev
+
+# macOS
+brew install webp
+
+# Fedora/RHEL
+sudo dnf install libwebp-devel
+```
+
+Verifique a instalação:
+```bash
+pkg-config --modversion libwebp
+pkg-config --cflags --libs libwebp
+```
+
+#### "undefined reference to `WebP*`"
+Certifique-se que CGO está habilitado:
+```bash
+export CGO_ENABLED=1
+go build -v
+```
+
+#### "cannot find -lgif"
+Instale giflib:
+```bash
+# Ubuntu/Debian
+sudo apt install giflib-dev
+
+# macOS
+brew install giflib
+
+# Fedora/RHEL
+sudo dnf install giflib-devel
+```
+
+### Problemas de Runtime
+
+#### "error while loading shared libraries: libwebp.so.7"
+Instale as bibliotecas runtime:
+```bash
+# Ubuntu/Debian
+sudo apt install libwebp7 libwebpdemux2
+
+# Fedora/RHEL
+sudo dnf install libwebp
+
+# macOS
+brew install webp
+```
+
+#### Verificar bibliotecas disponíveis
+```bash
+# Linux
+ldd ./webpconvert
+
+# macOS
+otool -L ./webpconvert
+```
 
 ## Testes
 
@@ -260,13 +390,28 @@ go test -race ./...
 
 ## Melhorias Futuras
 
-- [x] ~~Processamento paralelo de múltiplos arquivos~~ ✅ Implementado!
-- [x] ~~Versão standalone sem dependência de Python~~ ✅ Implementado!
+### Implementado
+- [x] ~~Processamento paralelo de múltiplos arquivos~~ ✅
+- [x] ~~Versão standalone sem dependência de Python~~ ✅
+- [x] ~~Decodificação avançada WebP~~ ✅
+- [x] ~~Quantização de cores Octree/Median Cut~~ ✅
+- [x] ~~Paletas locais por frame GIF~~ ✅
+- [x] ~~JPEG 4:4:4 chroma subsampling~~ ✅
+
+### Planejado
 - [ ] Opção para preservar arquivos originais (flag `--keep-original`)
 - [ ] Configuração de qualidade/compressão do GIF
 - [ ] Progress bar para conversões longas
 - [ ] Suporte a outras conversões (GIF→WebP, PNG→WebP, etc)
 - [ ] Static linking opcional para binário completamente portável
+
+### Otimizações de Performance (Identificadas)
+- [ ] Corrigir memory leak do `defer` em loop (frames GIF)
+- [ ] Buffer pooling com `sync.Pool` para reutilização de memória
+- [ ] Reduzir alocações desnecessárias em RGBA→RGB
+- [ ] Otimizar tamanho de channels para batch processing
+- [ ] Remover código morto (`analyzeAllFramesForGlobalPalette`)
+- [ ] Implementar paleta incremental para frames similares
 
 ## Build Avançado
 
