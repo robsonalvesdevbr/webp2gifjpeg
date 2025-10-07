@@ -14,6 +14,7 @@ Conversor de imagens **standalone** em Go com foco em conversões bi-direcionais
 - ✅ Tratamento de transparência (fundo branco em JPEG)
 - ✅ Processamento recursivo de diretórios
 - ✅ Substituição automática dos arquivos WebP originais
+- ✅ **Opção para preservar arquivos originais** (flag `--keep-original`)
 - ✅ Logging de progresso e erros em tempo real
 - ✅ **Implementação nativa em C** (CGO + libwebp + libjpeg + giflib)
 - ✅ **Zero dependências runtime** (apenas bibliotecas do sistema)
@@ -159,6 +160,16 @@ CGO_ENABLED=1 go build -o webpconvert
 ./webpconvert -workers 1
 ```
 
+### Preservar arquivos originais
+
+```bash
+# Manter arquivos WebP originais após conversão
+./webpconvert --keep-original
+
+# Os arquivos convertidos terão sufixo "_converted"
+# Exemplo: image.webp → image_converted.jpg + image.webp (preservado)
+```
+
 ### Exemplos
 
 ```bash
@@ -180,8 +191,14 @@ CGO_ENABLED=1 go build -o webpconvert
 # Processamento sequencial para economia de recursos
 ./webpconvert -dir ./imagens -workers 1
 
-# Combinar qualidade e workers
-./webpconvert -dir /home/usuario/fotos -quality 95 -workers 4
+# Preservar arquivos WebP originais
+./webpconvert --keep-original
+
+# Preservar originais com qualidade customizada
+./webpconvert --keep-original -quality 90
+
+# Combinar todas as opções
+./webpconvert -dir /home/usuario/fotos -quality 95 -workers 4 --keep-original
 ```
 
 ## Estrutura do Projeto
@@ -388,7 +405,7 @@ go test -race ./...
 
 ## Observações
 
-- **Backup**: A aplicação substitui os arquivos originais. Faça backup antes de executar.
+- **Backup**: Por padrão, a aplicação substitui os arquivos originais. Use `--keep-original` para preservá-los ou faça backup antes de executar.
 - **WebP Animado**: Suporte completo via libwebp - todos os frames e delays são preservados no GIF.
 - **WebP Estático**: Convertido para JPEG com qualidade configurável (padrão: 100).
 - **Transparência**: WebP com canal alpha são convertidos para JPEG com fundo branco.
@@ -414,9 +431,9 @@ go test -race ./...
 - [x] ~~Quantização de cores Octree/Median Cut~~ ✅
 - [x] ~~Paletas locais por frame GIF~~ ✅
 - [x] ~~JPEG 4:4:4 chroma subsampling~~ ✅
+- [x] ~~Opção para preservar arquivos originais (flag `--keep-original`)~~ ✅
 
 ### Planejado
-- [ ] Opção para preservar arquivos originais (flag `--keep-original`)
 - [ ] Configuração de qualidade/compressão do GIF
 - [ ] Progress bar para conversões longas
 - [ ] Suporte a outras conversões (GIF→WebP, PNG→WebP, etc)

@@ -13,15 +13,17 @@ import (
 
 // ProcessOptions configures the conversion behavior
 type ProcessOptions struct {
-	JPEGQuality int // 1-100, default 100
-	NumWorkers  int // Number of parallel workers (default: runtime.NumCPU())
+	JPEGQuality  int  // 1-100, default 100
+	NumWorkers   int  // Number of parallel workers (default: runtime.NumCPU())
+	KeepOriginal bool // Keep original WebP files (default: false)
 }
 
 // DefaultProcessOptions returns default configuration
 func DefaultProcessOptions() ProcessOptions {
 	return ProcessOptions{
-		JPEGQuality: 100,
-		NumWorkers:  1, // Sequential by default
+		JPEGQuality:  100,
+		NumWorkers:   1, // Sequential by default
+		KeepOriginal: false,
 	}
 }
 
@@ -64,20 +66,26 @@ func convertSingleFile(path string, options ProcessOptions) ConversionResult {
 
 	result.Type = webpType
 
-	// Create temp output path
+	// Create temp output path with appropriate suffix
 	baseWithoutExt := strings.TrimSuffix(path, filepath.Ext(path))
 	var outputPath string
 	var tempPath string
+	var suffix string
+
+	// Add "_converted" suffix if keeping original
+	if options.KeepOriginal {
+		suffix = "_converted"
+	}
 
 	// Route to appropriate converter
 	switch webpType {
 	case native.WebPTypeAnimated:
-		outputPath = baseWithoutExt + ".gif"
+		outputPath = baseWithoutExt + suffix + ".gif"
 		tempPath = outputPath + ".tmp"
 		err = native.ConvertWebPToGIF(path, tempPath)
 
 	case native.WebPTypeStatic:
-		outputPath = baseWithoutExt + ".jpg"
+		outputPath = baseWithoutExt + suffix + ".jpg"
 		tempPath = outputPath + ".tmp"
 		err = native.ConvertWebPToJPEG(path, tempPath, options.JPEGQuality)
 
@@ -98,11 +106,13 @@ func convertSingleFile(path string, options ProcessOptions) ConversionResult {
 		return result
 	}
 
-	// Remove original WebP
-	if err := os.Remove(path); err != nil {
-		os.Remove(tempPath)
-		result.Error = fmt.Errorf("failed to remove original file: %w", err)
-		return result
+	// Remove original WebP only if not keeping original
+	if !options.KeepOriginal {
+		if err := os.Remove(path); err != nil {
+			os.Remove(tempPath)
+			result.Error = fmt.Errorf("failed to remove original file: %w", err)
+			return result
+		}
 	}
 
 	// Rename temp file to final name
@@ -127,7 +137,7 @@ func worker(id int, jobs <-chan ConversionJob, results chan<- ConversionResult, 
 }
 
 // collectStats aggregates results from the results channel
-func collectStats(results <-chan ConversionResult, total int, verbose bool) ProcessStats {
+func collectStats(results <-chan ConversionResult, total int, verbose bool, keepOriginal bool) ProcessStats {
 	stats := ProcessStats{}
 	processed := 0
 
@@ -144,12 +154,20 @@ func collectStats(results <-chan ConversionResult, total int, verbose bool) Proc
 			case native.WebPTypeAnimated:
 				stats.AnimatedCount++
 				if verbose {
-					fmt.Printf("  Type: Animated → Converted to GIF\n")
+					if keepOriginal {
+						fmt.Printf("  Type: Animated → Converted to GIF (original preserved)\n")
+					} else {
+						fmt.Printf("  Type: Animated → Converted to GIF\n")
+					}
 				}
 			case native.WebPTypeStatic:
 				stats.StaticCount++
 				if verbose {
-					fmt.Printf("  Type: Static → Converted to JPEG\n")
+					if keepOriginal {
+						fmt.Printf("  Type: Static → Converted to JPEG (original preserved)\n")
+					} else {
+						fmt.Printf("  Type: Static → Converted to JPEG\n")
+					}
 				}
 			}
 			if verbose {
@@ -223,7 +241,7 @@ func ProcessDirectoryParallel(rootPath string, options ProcessOptions) error {
 	var stats ProcessStats
 	go func() {
 		defer statsWg.Done()
-		stats = collectStats(results, len(webpFiles), true)
+		stats = collectStats(results, len(webpFiles), true, options.KeepOriginal)
 	}()
 
 	// Dispatch jobs
@@ -288,10 +306,18 @@ func ProcessDirectory(rootPath string, options ProcessOptions) error {
 		// Update counters based on type
 		switch result.Type {
 		case native.WebPTypeAnimated:
-			fmt.Printf("  Type: Animated → Converted to GIF\n")
+			if options.KeepOriginal {
+				fmt.Printf("  Type: Animated → Converted to GIF (original preserved)\n")
+			} else {
+				fmt.Printf("  Type: Animated → Converted to GIF\n")
+			}
 			animatedCount++
 		case native.WebPTypeStatic:
-			fmt.Printf("  Type: Static → Converted to JPEG (quality %d)\n", options.JPEGQuality)
+			if options.KeepOriginal {
+				fmt.Printf("  Type: Static → Converted to JPEG (quality %d, original preserved)\n", options.JPEGQuality)
+			} else {
+				fmt.Printf("  Type: Static → Converted to JPEG (quality %d)\n", options.JPEGQuality)
+			}
 			staticCount++
 		}
 

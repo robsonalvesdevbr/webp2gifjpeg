@@ -15,6 +15,7 @@ func main() {
 	dirPtr := flag.String("dir", ".", "Directory to process (default: current directory)")
 	qualityPtr := flag.Int("quality", 100, "JPEG quality for static WebP (1-100, default: 100)")
 	workersPtr := flag.Int("workers", runtime.NumCPU(), "Number of parallel workers (default: CPU count)")
+	keepOriginalPtr := flag.Bool("keep-original", false, "Keep original WebP files after conversion (default: false)")
 	flag.Parse()
 
 	// Validate quality
@@ -50,12 +51,14 @@ func main() {
 
 	fmt.Printf("Processing WebP files in: %s\n", absPath)
 	fmt.Printf("JPEG Quality: %d\n", *qualityPtr)
-	fmt.Printf("Parallel Workers: %d\n\n", *workersPtr)
+	fmt.Printf("Parallel Workers: %d\n", *workersPtr)
+	fmt.Printf("Keep Original: %v\n\n", *keepOriginalPtr)
 
 	// Process all WebP files in directory with options
 	options := converter.ProcessOptions{
-		JPEGQuality: *qualityPtr,
-		NumWorkers:  *workersPtr,
+		JPEGQuality:  *qualityPtr,
+		NumWorkers:   *workersPtr,
+		KeepOriginal: *keepOriginalPtr,
 	}
 
 	// Use parallel processing if more than 1 worker is specified
