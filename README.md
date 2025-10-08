@@ -42,7 +42,7 @@ Conversor de imagens **standalone** em Go com foco em conversões bi-direcionais
 
 ### Para Desenvolvimento (Build)
 
-1. **Go 1.23 ou superior**
+1. **Go 1.25 ou superior**
 
    ```bash
    go version
@@ -72,14 +72,337 @@ Conversor de imagens **standalone** em Go com foco em conversões bi-direcionais
 
    # Fedora/RHEL
    sudo dnf install libwebp-devel giflib-devel libjpeg-turbo-devel
+   ```
 
-   # Windows (MSYS2)
+### Windows
+
+Este projeto usa CGO (Go com código C) e requer bibliotecas nativas do sistema. Você tem três opções principais:
+
+#### Instalação Rápida via go install (PowerShell/CMD)
+
+<details>
+<summary><b>Instalar diretamente sem compilar manualmente</b></summary>
+
+Se você já tem o Go instalado no Windows e quer apenas instalar a ferramenta:
+
+**Pré-requisitos:**
+1. Go 1.25 ou superior instalado ([download aqui](https://go.dev/dl/))
+2. MSYS2 com bibliotecas instaladas (veja Método 1 abaixo)
+
+**Instalação:**
+
+```powershell
+# No PowerShell ou CMD
+go install github.com/robsonalvesdevbr/webpconvert@latest
+```
+
+O executável será instalado em:
+- `%USERPROFILE%\go\bin\webpconvert.exe` (normalmente `C:\Users\SeuUsuario\go\bin\`)
+
+**Usar a ferramenta:**
+
+```powershell
+# Adicione ao PATH se ainda não estiver
+$env:PATH += ";$env:USERPROFILE\go\bin"
+
+# Execute
+webpconvert.exe
+```
+
+**Importante:** Você ainda precisa ter as DLLs do MSYS2 disponíveis:
+- Adicione `C:\msys64\mingw64\bin` ao PATH do Windows, ou
+- Copie as DLLs necessárias para `%USERPROFILE%\go\bin\`
+
+**Verificar instalação do Go:**
+```powershell
+# Verificar se Go está instalado
+go version
+
+# Se não estiver instalado, baixe em: https://go.dev/dl/
+# Execute o instalador go1.25.x.windows-amd64.msi
+# Reinicie o PowerShell e teste novamente
+```
+
+</details>
+
+#### Método 1: MSYS2/MinGW (Build manual completo)
+
+<details>
+<summary><b>O que é MSYS2 e por que preciso dele?</b></summary>
+
+MSYS2 é um ambiente de desenvolvimento que fornece:
+- Ferramentas Unix-like (bash, pacman) para Windows
+- MinGW-w64: compilador GCC nativo para Windows
+- Gerenciador de pacotes (pacman) para bibliotecas C/C++
+- Ambiente isolado que não interfere com o Windows
+
+**Por que usar MSYS2?**
+- Este projeto requer bibliotecas específicas (libwebp, giflib, libjpeg)
+- MSYS2 fornece versões pré-compiladas dessas bibliotecas
+- MinGW-w64 gera executáveis nativos do Windows (.exe)
+- É o método mais direto para projetos CGO no Windows
+
+</details>
+
+##### Passo 1: Instalar MSYS2
+
+1. Baixe o instalador do MSYS2:
+   - Acesse: https://www.msys2.org/
+   - Baixe o instalador: `msys2-x86_64-<data>.exe`
+   - Execute o instalador
+
+2. Durante a instalação:
+   - Mantenha o caminho padrão: `C:\msys64`
+   - Marque "Run MSYS2 now" ao finalizar
+
+3. Atualize o sistema base:
+   ```bash
+   pacman -Syu
+   ```
+   - Feche a janela quando solicitado
+   - Reabra "MSYS2 MSYS" do menu Iniciar
+   - Execute novamente:
+   ```bash
+   pacman -Su
+   ```
+
+##### Passo 2: Instalar Dependências
+
+1. Feche qualquer janela MSYS2 aberta
+
+2. Abra **MSYS2 MINGW64** (não MSYS2 MSYS):
+   - Busque no menu Iniciar: "MSYS2 MinGW 64-bit"
+   - Ou execute: `C:\msys64\mingw64.exe`
+
+3. Instale as bibliotecas de desenvolvimento:
+   ```bash
    pacman -S mingw-w64-x86_64-libwebp \
              mingw-w64-x86_64-giflib \
              mingw-w64-x86_64-libjpeg-turbo \
              mingw-w64-x86_64-pkg-config \
              mingw-w64-x86_64-gcc
    ```
+
+4. Instale o Go:
+
+   **Opção A - Via MSYS2 (mais simples):**
+   ```bash
+   pacman -S mingw-w64-x86_64-go
+   ```
+
+   **Opção B - Go nativo do Windows:**
+
+   Se preferir usar o instalador oficial do Go para Windows:
+
+   1. Baixe o instalador: https://go.dev/dl/
+   2. Execute `go1.25.x.windows-amd64.msi`
+   3. O Go será instalado em `C:\Program Files\Go`
+   4. O instalador adiciona automaticamente ao PATH do Windows
+   5. No MSYS2 MINGW64, verifique: `which go`
+
+   Ambas as opções funcionam perfeitamente no MSYS2 MINGW64
+
+##### Passo 3: Verificar Ambiente
+
+```bash
+# Verificar compilador C
+gcc --version
+
+# Verificar pkg-config
+pkg-config --version
+
+# Verificar bibliotecas
+pkg-config --libs libwebp
+pkg-config --libs libgif
+pkg-config --libs libjpeg
+
+# Verificar Go
+go version
+```
+
+##### Passo 4: Compilar o Projeto
+
+```bash
+# Clone o repositório (se ainda não fez)
+cd ~
+git clone https://github.com/robsonalvesdevbr/webpconvert.git
+cd webpconvert
+
+# Compile
+CGO_ENABLED=1 go build -o webpconvert.exe
+```
+
+##### Passo 5: Usar o Executável
+
+**Dentro do MSYS2 MINGW64:**
+```bash
+./webpconvert.exe
+```
+
+**No Windows (PowerShell/CMD):**
+
+Para usar fora do MSYS2, você precisa das DLLs do MinGW:
+
+Opção A - Adicionar ao PATH do Windows:
+1. Adicione `C:\msys64\mingw64\bin` ao PATH do sistema
+2. Reinicie o terminal
+
+Opção B - Copiar DLLs para a pasta do executável:
+```bash
+# No MSYS2 MINGW64:
+cp /mingw64/bin/libwebp-7.dll .
+cp /mingw64/bin/libgif-7.dll .
+cp /mingw64/bin/libjpeg-8.dll .
+cp /mingw64/bin/libgcc_s_seh-1.dll .
+cp /mingw64/bin/libwinpthread-1.dll .
+cp /mingw64/bin/libstdc++-6.dll .
+```
+
+**Notas Importantes:**
+- Sempre use **MSYS2 MINGW64** para compilar (não MSYS2 MSYS)
+- CGO_ENABLED=1 é necessário
+- Os executáveis são nativos do Windows (.exe)
+- DLLs do MinGW são necessárias em runtime
+
+#### Método 2: WSL (Windows Subsystem for Linux)
+
+<details>
+<summary><b>Quando usar WSL em vez de MSYS2?</b></summary>
+
+**Vantagens do WSL:**
+- Ambiente Linux completo no Windows
+- Mais simples se você já conhece Linux
+- Não precisa lidar com DLLs do MinGW
+- Melhor integração com ferramentas Linux
+
+**Desvantagens:**
+- Executável gerado não é nativo do Windows
+- Precisa do WSL para executar
+- Requer Windows 10 (build 19041+) ou Windows 11
+
+**Escolha WSL se:**
+- Você já usa ou quer aprender Linux
+- Não precisa de executável nativo do Windows
+- Prefere simplicidade sobre portabilidade
+
+</details>
+
+##### Instalar WSL
+
+1. Abra PowerShell como Administrador
+
+2. Instale WSL com Ubuntu:
+   ```powershell
+   wsl --install
+   ```
+
+3. Reinicie o computador quando solicitado
+
+4. Na primeira execução, crie usuário e senha
+
+##### Instalar Dependências no Ubuntu
+
+```bash
+sudo apt update
+sudo apt install -y libwebp-dev \
+                    libgif-dev \
+                    libjpeg-dev \
+                    pkg-config \
+                    build-essential \
+                    git \
+                    golang-go
+```
+
+##### Compilar e Usar
+
+```bash
+# Clonar repositório
+git clone https://github.com/robsonalvesdevbr/webpconvert.git
+cd webpconvert
+
+# Compilar
+go build -o webpconvert
+
+# Usar
+./webpconvert
+```
+
+**Acessar arquivos do Windows:**
+```bash
+# Seus arquivos estão em /mnt/c/
+./webpconvert /mnt/c/Users/SeuUsuario/Downloads/image.webp
+```
+
+#### Solução de Problemas (Windows)
+
+<details>
+<summary><b>Erro: "gcc: command not found"</b></summary>
+
+**Solução:**
+1. Certifique-se de estar no **MSYS2 MINGW64** (não MSYS2 MSYS)
+2. Reinstale o gcc:
+   ```bash
+   pacman -S mingw-w64-x86_64-gcc
+   ```
+3. Reinicie o shell MINGW64
+
+</details>
+
+<details>
+<summary><b>Erro: "package libwebp was not found"</b></summary>
+
+**Solução:**
+1. Verifique se as bibliotecas estão instaladas:
+   ```bash
+   pacman -Qs libwebp
+   ```
+2. Reinstale se necessário:
+   ```bash
+   pacman -S mingw-w64-x86_64-libwebp
+   ```
+
+</details>
+
+<details>
+<summary><b>Erro ao executar: "DLL não encontrada"</b></summary>
+
+**Soluções:**
+
+Opção 1 - Adicionar MinGW ao PATH:
+- Adicione `C:\msys64\mingw64\bin` às variáveis de ambiente do Windows
+
+Opção 2 - Copiar DLLs:
+```bash
+# No MSYS2 MINGW64:
+ldd webpconvert.exe
+# Copie cada DLL listada de /mingw64/bin para a pasta do executável
+```
+
+Opção 3 - Executar do MSYS2:
+- Use sempre o terminal MINGW64 (DLLs já no PATH)
+
+</details>
+
+<details>
+<summary><b>Build muito lento no Windows</b></summary>
+
+**Solução:**
+Adicione exceções no antivírus para:
+- `C:\msys64`
+- `C:\Users\SeuUsuario\go`
+- Processos: `gcc.exe`, `go.exe`
+
+</details>
+
+<details>
+<summary><b>Diferença entre MSYS2 MSYS e MINGW64?</b></summary>
+
+- **MSYS2 MSYS**: Ambiente Unix-like puro - NÃO use para compilar
+- **MSYS2 MINGW64**: Gera binários nativos Windows - USE ESTE
+
+Como identificar: Prompt MINGW64 mostra `MINGW64` no início da linha
+
+</details>
 
 4. **CGO habilitado** (geralmente já está por padrão)
 
