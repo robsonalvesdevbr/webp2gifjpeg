@@ -131,6 +131,14 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      - name: Get GOROOT path
+        id: go_path
+        shell: pwsh
+        run: |
+          $goRoot = go env GOROOT
+          echo "goroot=$goRoot" >> $env:GITHUB_OUTPUT
+          echo "Go root: $goRoot"
+
       - name: Install MSYS2
         uses: msys2/setup-msys2@v2
         with:
@@ -149,10 +157,11 @@ jobs:
           CGO_ENABLED: 1
           GOOS: windows
           GOARCH: amd64
+          WINDOWS_GOROOT: ${{ steps.go_path.outputs.goroot }}
         run: |
-          # Add Go to MSYS2 PATH using GOROOT (set by setup-go action)
+          # Add Go to MSYS2 PATH using GOROOT from previous step
           # Convert Windows path to MSYS2 format using cygpath
-          GO_BIN=$(cygpath -u "$GOROOT")/bin
+          GO_BIN=$(cygpath -u "$WINDOWS_GOROOT")/bin
           export PATH="${GO_BIN}:$PATH"
 
           # Verify Go is available
@@ -191,9 +200,11 @@ jobs:
 
       - name: Verify binary
         shell: msys2 {0}
+        env:
+          WINDOWS_GOROOT: ${{ steps.go_path.outputs.goroot }}
         run: |
-          # Add Go to PATH using GOROOT (needed for potential Go runtime checks)
-          GO_BIN=$(cygpath -u "$GOROOT")/bin
+          # Add Go to PATH using GOROOT from previous step
+          GO_BIN=$(cygpath -u "$WINDOWS_GOROOT")/bin
           export PATH="${GO_BIN}:$PATH"
 
           cd release
