@@ -150,7 +150,22 @@ jobs:
           GOOS: windows
           GOARCH: amd64
         run: |
+          # Add Go to MSYS2 PATH using GOROOT (set by setup-go action)
+          # Convert Windows path to MSYS2 format using cygpath
+          GO_BIN=$(cygpath -u "$GOROOT")/bin
+          export PATH="${GO_BIN}:$PATH"
+
+          # Verify Go is available
+          echo "Checking Go installation..."
+          which go
+          go version
+
+          # Download dependencies
+          go mod download
+          go mod verify
+
           # Build with version info
+          echo "Building webpconvert.exe..."
           go build -v \
             -ldflags="-s -w -X main.version=${{ needs.validate.outputs.version }}" \
             -o webpconvert.exe \
@@ -177,6 +192,10 @@ jobs:
       - name: Verify binary
         shell: msys2 {0}
         run: |
+          # Add Go to PATH using GOROOT (needed for potential Go runtime checks)
+          GO_BIN=$(cygpath -u "$GOROOT")/bin
+          export PATH="${GO_BIN}:$PATH"
+
           cd release
           ./webpconvert.exe --version
           echo "Binary size: $(du -h webpconvert.exe)"
