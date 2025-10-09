@@ -412,7 +412,34 @@ Como identificar: Prompt MINGW64 mostra `MINGW64` no início da linha
 
 ## Instalação da Aplicação
 
-### Via go install (Recomendado)
+### Via Binários Pré-compilados (Recomendado)
+
+Baixe a versão mais recente para seu sistema operacional na [página de releases](https://github.com/robsonalvesdevbr/webpconvert/releases/latest).
+
+#### Linux
+
+```bash
+# Baixe a versão mais recente (substitua VERSION pela versão desejada, ex: v1.4.0)
+wget https://github.com/robsonalvesdevbr/webpconvert/releases/download/VERSION/webpconvert-VERSION-linux-amd64.tar.gz
+
+# Extraia o arquivo
+tar xzf webpconvert-VERSION-linux-amd64.tar.gz
+
+# Mova para um diretório no PATH
+sudo mv webpconvert /usr/local/bin/
+
+# Verifique a instalação
+webpconvert --version
+```
+
+#### Windows
+
+1. Baixe `webpconvert-VERSION-windows-amd64.zip` da [página de releases](https://github.com/robsonalvesdevbr/webpconvert/releases/latest)
+2. Extraia o arquivo ZIP para um diretório de sua escolha (ex: `C:\Program Files\webpconvert\`)
+3. Adicione o diretório ao PATH do sistema
+4. Abra um novo terminal e execute: `webpconvert --version`
+
+### Via go install
 
 ```bash
 CGO_ENABLED=1 go install github.com/robsonalvesdevbr/webpconvert@latest

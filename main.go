@@ -10,13 +10,23 @@ import (
 	"github.com/robsonalvesdevbr/webpconvert/converter"
 )
 
+// Version is set at build time via -ldflags
+var version = "dev"
+
 func main() {
 	// Define command line flags
 	dirPtr := flag.String("dir", ".", "Directory to process (default: current directory)")
 	qualityPtr := flag.Int("quality", 100, "JPEG quality for static WebP (1-100, default: 100)")
 	workersPtr := flag.Int("workers", runtime.NumCPU(), "Number of parallel workers (default: CPU count)")
 	keepOriginalPtr := flag.Bool("keep-original", false, "Keep original WebP files after conversion (default: false)")
+	versionPtr := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	// Handle version flag
+	if *versionPtr {
+		fmt.Printf("webpconvert version %s\n", version)
+		os.Exit(0)
+	}
 
 	// Validate quality
 	if *qualityPtr < 1 || *qualityPtr > 100 {
