@@ -1,0 +1,207 @@
+name: Security Scan
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+
+env:
+  GO_VERSION: '1.25'
+
+jobs:
+  scan:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Grype Scanner
+        id: grype
+        uses: anchore/scan-action@v4
+        with:
+          path: '.'
+          fail-build: false
+          severity-cutoff: high
+          output-format: json
+
+      - name: Upload Grype SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+
+      - name: Check for Critical/High Vulnerabilities
+        id: check_vulns
+        if: always()
+        run: |
+          if [ -f "${{ steps.grype.outputs.json }}" ]; then
+            CRITICAL=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' ${{ steps.grype.outputs.json }})
+            HIGH=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' ${{ steps.grype.outputs.json }})
+
+            echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+            echo "high=$HIGH" >> $GITHUB_OUTPUT
+
+            if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+              echo "has_vulns=true" >> $GITHUB_OUTPUT
+            else
+              echo "has_vulns=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "has_vulns=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Security Issue on Vulnerabilities
+        if: steps.check_vulns.outputs.has_vulns == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const results = JSON.parse(fs.readFileSync('${{ steps.grype.outputs.json }}', 'utf8'));
+
+            if (results.matches && results.matches.length > 0) {
+              const critical = results.matches.filter(m => m.vulnerability.severity === 'Critical');
+              const high = results.matches.filter(m => m.vulnerability.severity === 'High');
+
+              let body = `## 🚨 Security Vulnerabilities Detected\n\n`;
+              body += `**Scan Date**: ${new Date().toISOString()}\n\n`;
+              body += `**Summary**: ${critical.length} Critical, ${high.length} High\n\n`;
+
+              if (critical.length > 0) {
+                body += `### 🔴 Critical Vulnerabilities\n\n`;
+                critical.slice(0, 10).forEach(v => {
+                  body += `#### ${v.vulnerability.id}\n`;
+                  body += `- **Package**: \`${v.artifact.name}@${v.artifact.version}\`\n`;
+                  body += `- **Description**: ${v.vulnerability.description || 'No description available'}\n`;
+                  if (v.vulnerability.fix && v.vulnerability.fix.versions && v.vulnerability.fix.versions.length > 0) {
+                    body += `- **Fix Available**: Upgrade to ${v.vulnerability.fix.versions.join(', ')}\n`;
+                  } else {
+                    body += `- **Fix Available**: ⚠️ No fix currently available\n`;
+                  }
+                  if (v.vulnerability.urls && v.vulnerability.urls.length > 0) {
+                    body += `- **References**: ${v.vulnerability.urls[0]}\n`;
+                  }
+                  body += `\n`;
+                });
+                if (critical.length > 10) {
+                  body += `\n*... and ${critical.length - 10} more critical vulnerabilities*\n\n`;
+                }
+              }
+
+              if (high.length > 0) {
+                body += `### 🟠 High Severity Vulnerabilities\n\n`;
+                high.slice(0, 10).forEach(v => {
+                  body += `#### ${v.vulnerability.id}\n`;
+                  body += `- **Package**: \`${v.artifact.name}@${v.artifact.version}\`\n`;
+                  body += `- **Description**: ${v.vulnerability.description || 'No description available'}\n`;
+                  if (v.vulnerability.fix && v.vulnerability.fix.versions && v.vulnerability.fix.versions.length > 0) {
+                    body += `- **Fix Available**: Upgrade to ${v.vulnerability.fix.versions.join(', ')}\n`;
+                  } else {
+                    body += `- **Fix Available**: ⚠️ No fix currently available\n`;
+                  }
+                  body += `\n`;
+                });
+                if (high.length > 10) {
+                  body += `\n*... and ${high.length - 10} more high severity vulnerabilities*\n\n`;
+                }
+              }
+
+              body += `---\n\n`;
+              body += `**Action Required**: Please review and address these vulnerabilities as soon as possible.\n\n`;
+              body += `**Full Report**: Check the [Security tab](https://github.com/${context.repo.owner}/${context.repo.repo}/security/code-scanning) for complete details.\n`;
+
+              // Check if there's already an open issue
+              const issues = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: 'security,vulnerability',
+                per_page: 100
+              });
+
+              const existingIssue = issues.data.find(issue =>
+                issue.title.includes('Security Alert') &&
+                issue.created_at > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+              );
+
+              if (existingIssue) {
+                // Update existing issue
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: existingIssue.number,
+                  body: `## Updated Scan Results\n\n${body}`
+                });
+              } else {
+                // Create new issue
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: `Security Alert: ${critical.length} Critical, ${high.length} High Vulnerabilities`,
+                  body: body,
+                  labels: ['security', 'vulnerability']
+                });
+              }
+            }
+
+      - name: Generate Scan Summary
+        if: always()
+        run: |
+          echo "## 🔒 Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Scan Date**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "${{ steps.grype.outputs.json }}" ]; then
+            CRITICAL=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' ${{ steps.grype.outputs.json }})
+            HIGH=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' ${{ steps.grype.outputs.json }})
+            MEDIUM=$(jq '[.matches[] | select(.vulnerability.severity == "Medium")] | length' ${{ steps.grype.outputs.json }})
+            LOW=$(jq '[.matches[] | select(.vulnerability.severity == "Low")] | length' ${{ steps.grype.outputs.json }})
+            TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$TOTAL" -eq 0 ]; then
+              echo "✅ **No vulnerabilities detected!**" >> $GITHUB_STEP_SUMMARY
+            elif [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+              echo "⚠️ **Action required**: Critical or high severity vulnerabilities found." >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Please check the Security tab for details." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "ℹ️ Low/medium severity vulnerabilities found. Review recommended." >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⚠️ Scan results not available" >> $GITHUB_STEP_SUMMARY
+          fi

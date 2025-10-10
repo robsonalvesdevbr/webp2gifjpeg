@@ -813,6 +813,66 @@ CGO_ENABLED=1 go build -ldflags="-linkmode external -extldflags '-static'" -o we
 
 **Nota**: Static linking pode não funcionar em todos os sistemas operacionais.
 
+## Segurança e Compliance
+
+### SBOM (Software Bill of Materials)
+
+O webpconvert gera e publica **Software Bill of Materials (SBOM)** completo para cada release, proporcionando transparência total sobre dependências e habilitando análise automatizada de segurança.
+
+#### O que é SBOM?
+
+SBOM é um inventário formal de todos os componentes de software, incluindo dependências diretas e transitivas, versões, licenças e hashes criptográficos. Isso permite:
+
+- **Detecção rápida de vulnerabilidades** (CVEs) em dependências
+- **Compliance** com frameworks como NIST SSDF e Executive Order 14028
+- **Transparência** da cadeia de suprimentos de software
+- **Rastreabilidade** de componentes afetados por vulnerabilidades
+
+#### Acessar SBOM
+
+Cada release inclui SBOM em três formatos:
+
+```bash
+# Baixar SBOM CycloneDX (recomendado)
+gh release download v1.0.0 -p "*sbom.cyclonedx.json"
+
+# Baixar SBOM SPDX (padrão ISO)
+gh release download v1.0.0 -p "*sbom.spdx.json"
+
+# Verificar integridade
+wget https://github.com/robsonalvesdevbr/webpconvert/releases/download/v1.0.0/sbom_checksums.txt
+sha256sum -c sbom_checksums.txt --ignore-missing
+```
+
+#### Escanear Vulnerabilidades
+
+```bash
+# Usando Grype (recomendado)
+grype sbom:webpconvert_1.0.0_sbom.cyclonedx.json
+
+# Usando Trivy
+trivy sbom webpconvert_1.0.0_sbom.cyclonedx.json
+```
+
+#### Automação de Segurança
+
+O projeto implementa:
+- ✅ Geração automática de SBOM em cada release
+- ✅ Submissão contínua ao GitHub Dependency Graph
+- ✅ Scanning diário de vulnerabilidades com Grype e Trivy
+- ✅ Criação automática de issues para vulnerabilidades críticas/altas
+- ✅ Integração com GitHub Security (SARIF reports)
+
+#### Documentação Completa
+
+Para informações detalhadas sobre SBOM, formatos disponíveis, análise de licenças e integração com CI/CD, veja:
+
+**[docs/SBOM.md](docs/SBOM.md)** - Guia completo de SBOM
+
+### Reportar Vulnerabilidades
+
+Para reportar vulnerabilidades de segurança, veja [SECURITY.md](SECURITY.md).
+
 ## Licença
 
 MIT

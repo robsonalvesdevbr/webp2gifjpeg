@@ -1,0 +1,97 @@
+name: SBOM Submission
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    # Run weekly on Sundays at 00:00 UTC to detect new vulnerabilities
+    - cron: '0 0 * * 0'
+
+permissions:
+  contents: write
+  security-events: write
+
+env:
+  GO_VERSION: '1.25'
+
+jobs:
+  sbom:
+    name: Generate and Submit SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Generate and Submit SBOM to GitHub
+        uses: anchore/sbom-action@v0.17.0
+        with:
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: true
+          upload-release-assets: false
+          dependency-snapshot: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0.17.0
+        with:
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          upload-artifact: true
+          upload-release-assets: false
+
+      - name: Run Grype Vulnerability Scanner
+        uses: anchore/scan-action@v4
+        id: grype
+        with:
+          sbom: sbom.cyclonedx.json
+          fail-build: false
+          severity-cutoff: critical
+
+      - name: Upload Grype SARIF Report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+
+      - name: Generate Vulnerability Report Summary
+        if: always()
+        run: |
+          echo "## 🔒 Vulnerability Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "${{ steps.grype.outputs.json }}" ]; then
+            # Count vulnerabilities by severity
+            CRITICAL=$(jq '[.matches[] | select(.vulnerability.severity == "Critical")] | length' ${{ steps.grype.outputs.json }})
+            HIGH=$(jq '[.matches[] | select(.vulnerability.severity == "High")] | length' ${{ steps.grype.outputs.json }})
+            MEDIUM=$(jq '[.matches[] | select(.vulnerability.severity == "Medium")] | length' ${{ steps.grype.outputs.json }})
+            LOW=$(jq '[.matches[] | select(.vulnerability.severity == "Low")] | length' ${{ steps.grype.outputs.json }})
+
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+              echo "### ⚠️ High Priority Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              jq -r '.matches[] | select(.vulnerability.severity == "Critical" or .vulnerability.severity == "High") | "- **\(.vulnerability.id)** [\(.vulnerability.severity)] in `\(.artifact.name)@\(.artifact.version)`\n  - \(.vulnerability.description // "No description available")\n  - Fix: \(.vulnerability.fix.versions // ["No fix available"] | join(", "))"' ${{ steps.grype.outputs.json }} >> $GITHUB_STEP_SUMMARY || echo "No high priority vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ **No critical or high severity vulnerabilities found!**" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "⚠️ Scan results not available" >> $GITHUB_STEP_SUMMARY
+          fi
